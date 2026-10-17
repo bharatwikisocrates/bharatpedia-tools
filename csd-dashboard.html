@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>CSD Dashboard - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --danger: #b3261e; --danger-soft: #fbe7e5; --warn: #9a6a00; --warn-soft: #fbf0cd; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --danger: #f0837c; --danger-soft: #3d1f1d; --warn: #e0b95c; --warn-soft: #3a3013; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 950px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); font-size: 14px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--surface-2); color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.b-g { background: var(--danger-soft); color: var(--danger); }
+.b-a { background: var(--warn-soft); color: var(--warn); }
+.b-u { background: var(--surface-2); color: var(--ink-soft); }
+.age-old { color: var(--danger); font-weight: 700; }
+.age-mid { color: var(--warn); font-weight: 600; }
+.del { font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>CSD Dashboard</h1>
+<p class="sub">Speedy deletion backlog, oldest first. Review each page before acting.</p>
+<div class="controls">
+<button id="go" onclick="load()">Load backlog</button>
+<select id="sort" onchange="render()">
+<option value="oldest">Sort: oldest tagged first</option>
+<option value="newest">Sort: newest tagged first</option>
+<option value="reason">Sort: by reason</option>
+</select>
+</div>
+<div class="status" id="status"></div>
+<div style="overflow-x:auto"><table id="tbl" style="display:none"><thead><tr><th>Page</th><th>Reason</th><th>Tagged</th><th>In queue</th><th>Action</th></tr></thead><tbody id="rows"></tbody></table></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+let items = [];
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url); return r.json();
+}
+function parseReason(wikitext) {
+  if (!wikitext) return { code: "?", label: "Unknown" };
+  const m = wikitext.match(/\{\{\s*(?:db|delete|csd)[^}]*\}\}/i);
+  const db = wikitext.match(/\{\{\s*db-([a-z0-9]+)/i);
+  if (db) return { code: db[1].toUpperCase(), label: "CSD " + db[1].toUpperCase() };
+  const g = wikitext.match(/\b([GAUF][1-9][0-9]?)\b/);
+  if (g) return { code: g[1].toUpperCase(), label: "CSD " + g[1].toUpperCase() };
+  if (m) return { code: "DB", label: "Speedy deletion" };
+  return { code: "?", label: "Tagged" };
+}
+function reasonClass(code) {
+  if (/^G1[01]/.test(code)) return "b-g";
+  if (/^G/.test(code)) return "b-g";
+  if (/^A/.test(code)) return "b-a";
+  return "b-u";
+}
+async function load() {
+  const btn = document.getElementById("go"), st = document.getElementById("status");
+  btn.disabled = true; st.textContent = "Loading CSD backlog..."; items = [];
+  document.getElementById("tbl").style.display = "none";
+  try {
+    let cmcontinue = null; const members = [];
+    do {
+      const p = { action: "query", list: "categorymembers", cmtitle: "Category:Candidates for speedy deletion", cmlimit: 100, cmsort: "timestamp", cmdir: "asc" };
+      if (cmcontinue) p.cmcontinue = cmcontinue;
+      const d = await api(p);
+      (d.query.categorymembers || []).forEach(m => members.push(m));
+      cmcontinue = d.continue && d.continue.cmcontinue;
+      st.textContent = "Found " + members.length + " pages...";
+    } while (cmcontinue && members.length < 300);
+    st.textContent = "Reading tags for " + members.length + " pages...";
+    for (let i = 0; i < members.length; i += 20) {
+      const batch = members.slice(i, i + 20);
+      const d = await api({ action: "query", prop: "revisions|info", pageids: batch.map(m => m.pageid).join("|"), rvprop: "content|timestamp|user", rvslots: "main", rvlimit: 1, formatversion: 2 });
+      const pages = d.query.pages || [];
+      pages.forEach(pg => {
+        const rev = (pg.revisions && pg.revisions[0]) || {};
+        const wt = (rev.slots && rev.slots.main && rev.slots.main.content) || "";
+        items.push({ title: pg.title, pageid: pg.pageid, reason: parseReason(wt), taggedAt: rev.timestamp || null, tagger: rev.user || "unknown" });
+      });
+      st.textContent = "Processed " + Math.min(i + 20, members.length) + " / " + members.length;
+    }
+    st.textContent = items.length + " pages in the CSD backlog.";
+    document.getElementById("tbl").style.display = "";
+    render();
+  } catch (e) { st.textContent = "Error: " + e.message; }
+  btn.disabled = false;
+}
+function render() {
+  const sort = document.getElementById("sort").value;
+  const arr = items.slice();
+  if (sort === "oldest") arr.sort((a, b) => new Date(a.taggedAt || 0) - new Date(b.taggedAt || 0));
+  else if (sort === "newest") arr.sort((a, b) => new Date(b.taggedAt || 0) - new Date(a.taggedAt || 0));
+  else arr.sort((a, b) => a.reason.code.localeCompare(b.reason.code));
+  document.getElementById("rows").innerHTML = arr.map(it => {
+    const link = "https://en.bharatpedia.org/wiki/" + encodeURIComponent(it.title.replace(/ /g, "_"));
+    const del = "https://en.bharatpedia.org/w/index.php?title=" + encodeURIComponent(it.title.replace(/ /g, "_")) + "&action=delete";
+    const ageH = it.taggedAt ? (Date.now() - new Date(it.taggedAt)) / 3600000 : null;
+    const ageTxt = ageH === null ? "-" : ageH < 1 ? Math.round(ageH * 60) + "m" : ageH < 24 ? Math.round(ageH) + "h" : Math.round(ageH / 24) + "d";
+    const ageCls = ageH === null ? "" : ageH > 48 ? "age-old" : ageH > 12 ? "age-mid" : "";
+    return `<tr><td><a href="${link}" target="_blank" rel="noopener">${esc(it.title)}</a><br/><span style="font-size:12px;color:var(--ink-faint)">by ${esc(it.tagger)}</span></td><td><span class="badge ${reasonClass(it.reason.code)}">${esc(it.reason.label)}</span></td><td>${it.taggedAt ? fmtTime(it.taggedAt) : "-"}</td><td class="${ageCls}">${ageTxt}</td><td class="del"><a href="${del}" target="_blank" rel="noopener">Delete</a></td></tr>`;
+  }).join("");
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+</script>
+</body>
+</html>

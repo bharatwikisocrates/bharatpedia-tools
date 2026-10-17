@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>User Contributions Analyzer - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --danger: #b3261e; --danger-soft: #fbe7e5; --ok: #1e7a3c; --ok-soft: #e2f3e6; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --danger: #f0837c; --danger-soft: #3d1f1d; --ok: #5cc47c; --ok-soft: #1d3626; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; }
+input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.card h2 { margin: 0 0 12px; font-size: 18px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 6px; }
+.stat { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; }
+.stat b { display: block; font-size: 22px; }
+.stat span { font-size: 12px; color: var(--ink-soft); }
+.nsbar { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 14px; }
+.nsbar .lbl { width: 140px; flex-shrink: 0; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nsbar .track { flex: 1; height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+.nsbar .fill { height: 100%; background: var(--accent); border-radius: 5px; }
+.nsbar .n { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+.b-blocked { background: var(--danger-soft); color: var(--danger); }
+.b-clean { background: var(--ok-soft); color: var(--ok); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>User Contributions Analyzer</h1>
+<p class="sub">Deep dive into any user's edit history, namespace activity, and account standing.</p>
+<div class="controls">
+<input type="text" id="user" placeholder="Username, e.g. Bharatwiki Socrates" />
+<button id="go" onclick="analyze()">Analyze</button>
+</div>
+<div class="status" id="status"></div>
+<div id="out"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const NS_NAMES = { 0: "Main", 1: "Talk", 2: "User", 3: "User talk", 4: "Bharatpedia", 5: "Bharatpedia talk", 6: "File", 7: "File talk", 10: "Template", 11: "Template talk", 14: "Category", 15: "Category talk", 118: "Draft", 119: "Draft talk" };
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url); return r.json();
+}
+async function analyze() {
+  const user = document.getElementById("user").value.trim();
+  if (!user) return;
+  const btn = document.getElementById("go"), st = document.getElementById("status"), out = document.getElementById("out");
+  btn.disabled = true; out.innerHTML = ""; st.textContent = "Fetching user info...";
+  try {
+    const u = await api({ action: "query", list: "users", ususers: user, usprop: "editcount|registration|blockinfo|groups" });
+    const info = (u.query.users || [])[0];
+    if (!info || info.missing !== undefined) { st.textContent = "User not found."; btn.disabled = false; return; }
+    st.textContent = "Fetching contributions...";
+    let uccontinue = null; const contribs = [];
+    do {
+      const p = { action: "query", list: "usercontribs", ucuser: user, ucprop: "title|timestamp|sizediff", uclimit: 200, ucdir: "older" };
+      if (uccontinue) p.uccontinue = uccontinue;
+      const d = await api(p);
+      (d.query.usercontribs || []).forEach(c => contribs.push(c));
+      uccontinue = d.continue && d.continue.uccontinue;
+      st.textContent = "Fetched " + contribs.length + " edits...";
+    } while (uccontinue && contribs.length < 500);
+    const nsCount = {}, pageCount = {};
+    contribs.forEach(c => { nsCount[c.ns] = (nsCount[c.ns] || 0) + 1; pageCount[c.title] = (pageCount[c.title] || 0) + 1; });
+    const maxNs = Math.max(1, ...Object.values(nsCount));
+    const topPages = Object.entries(pageCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const recent = contribs.slice(0, 15);
+    const blocked = !!info.blockid;
+    const regDate = info.registration ? new Date(info.registration).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "unknown";
+    const ageDays = info.registration ? Math.floor((Date.now() - new Date(info.registration)) / 86400000) : null;
+    st.textContent = "";
+    const userLink = "https://en.bharatpedia.org/wiki/User:" + encodeURIComponent(user.replace(/ /g, "_"));
+    out.innerHTML = `
+    <div class="card"><h2><a href="${userLink}" target="_blank" rel="noopener">${esc(user)}</a> ${blocked ? '<span class="badge b-blocked">BLOCKED</span>' : '<span class="badge b-clean">Not blocked</span>'}</h2>
+    <div class="stat-grid">
+      <div class="stat"><b>${(info.editcount || 0).toLocaleString()}</b><span>Total edits</span></div>
+      <div class="stat"><b>${regDate}</b><span>Registered</span></div>
+      <div class="stat"><b>${ageDays !== null ? ageDays + " days" : "-"}</b><span>Account age</span></div>
+      <div class="stat"><b>${(info.groups || []).join(", ") || "user"}</b><span>Groups</span></div>
+    </div>${blocked && info.blockreason ? `<p style="font-size:14px">Block reason: ${esc(info.blockreason)}</p>` : ""}</div>
+    <div class="card"><h2>Edits by namespace (last ${contribs.length})</h2>
+    ${Object.entries(nsCount).sort((a, b) => b[1] - a[1]).map(([ns, n]) => `<div class="nsbar"><span class="lbl">${esc(NS_NAMES[ns] || ("ns:" + ns))}</span><span class="track"><span class="fill" style="width:${Math.round(n / maxNs * 100)}%"></span></span><span class="n">${n}</span></div>`).join("")}</div>
+    <div class="card"><h2>Top edited pages</h2><table><tr><th>Page</th><th>Edits</th></tr>${topPages.map(([t, n]) => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(t.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(t)}</a></td><td>${n}</td></tr>`).join("")}</table></div>
+    <div class="card"><h2>Recent edits</h2><table><tr><th>Time</th><th>Page</th><th>Change</th></tr>${recent.map(c => `<tr><td>${fmtTime(c.timestamp)}</td><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(c.title.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(c.title)}</a></td><td>${c.sizediff >= 0 ? "+" : ""}${c.sizediff}</td></tr>`).join("")}</table></div>`;
+  } catch (e) { st.textContent = "Error: " + e.message; }
+  btn.disabled = false;
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+document.getElementById("user").addEventListener("keydown", e => { if (e.key === "Enter") analyze(); });
+</script>
+</body>
+</html>

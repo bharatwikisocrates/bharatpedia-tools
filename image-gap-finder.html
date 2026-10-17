@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Image Gap Finder - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --warn: #9a6a00; --warn-soft: #fbf0cd; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --warn: #e0b95c; --warn-soft: #3a3013; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; }
+input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.results { display: grid; gap: 10px; }
+.row { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; box-shadow: var(--shadow); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.row .t { font-weight: 600; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; background: var(--warn-soft); color: var(--warn); }
+.meta { font-size: 13px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Image Gap Finder</h1>
+<p class="sub">Find articles in a category that have no images. Give them visual attention.</p>
+<div class="controls">
+<input type="text" id="cat" placeholder="Category name, e.g. Hyderabad Metro stations" />
+<button id="go" onclick="find()">Find gaps</button>
+</div>
+<div class="status" id="status"></div>
+<div class="results" id="results"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url); return r.json();
+}
+async function find() {
+  let cat = document.getElementById("cat").value.trim();
+  if (!cat) return;
+  if (!/^Category:/i.test(cat)) cat = "Category:" + cat;
+  const btn = document.getElementById("go"), st = document.getElementById("status"), res = document.getElementById("results");
+  btn.disabled = true; res.innerHTML = ""; st.textContent = "Listing category members...";
+  try {
+    let cmcontinue = null; const members = [];
+    do {
+      const p = { action: "query", list: "categorymembers", cmtitle: cat, cmnamespace: 0, cmlimit: 100, cmtype: "page" };
+      if (cmcontinue) p.cmcontinue = cmcontinue;
+      const d = await api(p);
+      (d.query.categorymembers || []).forEach(m => members.push(m));
+      cmcontinue = d.continue && d.continue.cmcontinue;
+    } while (cmcontinue && members.length < 200);
+    if (!members.length) { st.textContent = "No articles found in this category."; btn.disabled = false; return; }
+    st.textContent = "Checking images for " + members.length + " articles...";
+    const gaps = [];
+    for (let i = 0; i < members.length; i += 20) {
+      const batch = members.slice(i, i + 20);
+      const d = await api({ action: "query", prop: "images|info", pageids: batch.map(m => m.pageid).join("|"), imlimit: 5, inprop: "" });
+      const pages = d.query.pages || {};
+      for (const pid in pages) {
+        const pg = pages[pid];
+        const imgs = (pg.images || []).filter(im => !/\.svg$/i.test(im.title));
+        if (!imgs.length) gaps.push({ title: pg.title, size: pg.length });
+      }
+      st.textContent = "Checked " + Math.min(i + 20, members.length) + " / " + members.length + ". Gaps so far: " + gaps.length;
+    }
+    gaps.sort((a, b) => b.size - a.size);
+    st.textContent = gaps.length + " of " + members.length + " articles have no images.";
+    res.innerHTML = gaps.map(g => {
+      const link = "https://en.bharatpedia.org/wiki/" + encodeURIComponent(g.title.replace(/ /g, "_"));
+      return `<div class="row"><div><div class="t"><a href="${link}" target="_blank" rel="noopener">${esc(g.title)}</a> <span class="badge">No images</span></div><div class="meta">${fmtSize(g.size)}</div></div></div>`;
+    }).join("") || "<p>Every article in this category already has images.</p>";
+  } catch (e) { st.textContent = "Error: " + e.message; }
+  btn.disabled = false;
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtSize(n) { return n >= 1024 ? (n/1024).toFixed(1) + " KB" : n + " bytes"; }
+document.getElementById("cat").addEventListener("keydown", e => { if (e.key === "Enter") find(); });
+</script>
+</body>
+</html>

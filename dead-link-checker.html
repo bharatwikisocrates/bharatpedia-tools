@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Dead Link Checker - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --ok: #1e7a3c; --ok-soft: #e2f3e6; --warn: #9a6a00; --warn-soft: #fbf0cd; --danger: #b3261e; --danger-soft: #fbe7e5; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --ok: #5cc47c; --ok-soft: #1d3626; --warn: #e0b95c; --warn-soft: #3a3013; --danger: #f0837c; --danger-soft: #3d1f1d; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; }
+input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.results { display: grid; gap: 10px; }
+.link-row { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; box-shadow: var(--shadow); }
+.link-row .url { font-weight: 600; word-break: break-all; font-size: 14px; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-left: 8px; }
+.b-ok { background: var(--ok-soft); color: var(--ok); }
+.b-bad { background: var(--danger-soft); color: var(--danger); }
+.b-unk { background: var(--warn-soft); color: var(--warn); }
+.meta { font-size: 13px; color: var(--ink-soft); margin-top: 4px; }
+.note { background: var(--surface-2); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--ink-soft); margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Dead Link Checker</h1>
+<p class="sub">Extract external links from an article and check whether they are reachable.</p>
+<div class="note">Browsers block cross-site checks for many domains. Links that cannot be checked automatically are marked "check manually".</div>
+<div class="controls">
+<input type="text" id="title" placeholder="Article title, e.g. KPHB Colony metro station" />
+<button id="go" onclick="check()">Check links</button>
+</div>
+<div class="status" id="status"></div>
+<div class="results" id="results"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url); return r.json();
+}
+function extractUrls(wikitext) {
+  const urls = new Set();
+  const re = /https?:\/\/[^\s<>\[\]{}|"]+/g;
+  let m;
+  while ((m = re.exec(wikitext)) !== null) {
+    let u = m[0].replace(/[.,;:!?)\]]+$/, "");
+    if (u.length > 12) urls.add(u);
+  }
+  return Array.from(urls);
+}
+async function probe(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: "HEAD", mode: "no-cors", signal: ctrl.signal, redirect: "follow" });
+    clearTimeout(t);
+    return { state: "ok", note: "reachable (opaque check)" };
+  } catch (e) {
+    clearTimeout(t);
+    if (e.name === "AbortError") return { state: "bad", note: "timed out" };
+    return { state: "unk", note: "check manually (blocked by CORS)" };
+  }
+}
+async function check() {
+  const title = document.getElementById("title").value.trim();
+  if (!title) return;
+  const btn = document.getElementById("go"), st = document.getElementById("status"), res = document.getElementById("results");
+  btn.disabled = true; res.innerHTML = ""; st.textContent = "Fetching article wikitext...";
+  try {
+    const d = await api({ action: "query", prop: "revisions", titles: title, rvprop: "content", rvslots: "main", formatversion: 2 });
+    const pages = (d.query && d.query.pages) || [];
+    const page = pages[0];
+    if (!page || page.missing) { st.textContent = "Article not found."; btn.disabled = false; return; }
+    const wt = (page.revisions && page.revisions[0] && page.revisions[0].slots && page.revisions[0].slots.main && page.revisions[0].slots.main.content) || "";
+    const urls = extractUrls(wt);
+    const ext = urls.filter(u => !u.includes("bharatpedia.org"));
+    st.textContent = ext.length + " external links found. Checking...";
+    const rows = [];
+    for (let i = 0; i < ext.length; i++) {
+      st.textContent = "Checking " + (i + 1) + " / " + ext.length + "...";
+      const r = await probe(ext[i], 8000);
+      rows.push({ url: ext[i], r });
+    }
+    const order = { bad: 0, unk: 1, ok: 2 };
+    rows.sort((a, b) => order[a.r.state] - order[b.r.state]);
+    st.textContent = ext.length + " links checked: " + rows.filter(x => x.r.state === "bad").length + " failed, " + rows.filter(x => x.r.state === "unk").length + " manual, " + rows.filter(x => x.r.state === "ok").length + " reachable.";
+    res.innerHTML = rows.map(x => {
+      const b = x.r.state === "ok" ? '<span class="badge b-ok">Reachable</span>' : x.r.state === "bad" ? '<span class="badge b-bad">Failed</span>' : '<span class="badge b-unk">Check manually</span>';
+      let host = ""; try { host = new URL(x.url).hostname; } catch (e) {}
+      return `<div class="link-row"><div class="url"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.url)}</a>${b}</div><div class="meta">${esc(host)} &middot; ${esc(x.r.note)}</div></div>`;
+    }).join("");
+  } catch (e) { st.textContent = "Error: " + e.message; }
+  btn.disabled = false;
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+document.getElementById("title").addEventListener("keydown", e => { if (e.key === "Enter") check(); });
+</script>
+</body>
+</html>

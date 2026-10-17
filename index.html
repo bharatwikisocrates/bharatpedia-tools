@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Bharatpedia Admin Tools</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f7f5f0;
+  --surface: #ffffff;
+  --surface-2: #f0ede6;
+  --ink: #1c2430;
+  --ink-soft: #4c5866;
+  --ink-faint: #77828f;
+  --line: #ddd8cc;
+  --accent: #b3540a;
+  --accent-ink: #ffffff;
+  --accent-soft: #fbeedd;
+  --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --surface: #1d222a;
+    --surface-2: #262c36;
+    --ink: #e8ebef;
+    --ink-soft: #b3bcc7;
+    --ink-faint: #828e9c;
+    --line: #343c48;
+    --accent: #e08a3c;
+    --accent-ink: #1c1408;
+    --accent-soft: #3a2a16;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 56px; }
+header.page-head { margin: 6px 0 24px; text-align: center; }
+header.page-head h1 { margin: 0 0 8px; font-family: Georgia, serif; font-size: clamp(28px, 5vw, 40px); font-weight: 700; }
+header.page-head p { margin: 0 auto; color: var(--ink-soft); max-width: 60ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); text-decoration: none; color: inherit; display: flex; flex-direction: column; transition: transform .15s, box-shadow .15s; }
+.card:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,.12); }
+.card .icon { font-size: 32px; margin-bottom: 12px; }
+.card h2 { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
+.card p { margin: 0; font-size: 14px; color: var(--ink-soft); flex: 1; }
+.card .go { margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--accent); }
+footer { text-align: center; margin-top: 40px; color: var(--ink-faint); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="page-head">
+<h1>Bharatpedia Admin Tools</h1>
+<p>A collection of maintenance and patrol tools for Bharatpedia administrators and editors. All tools use the public Bharatpedia API.</p>
+</header>
+<div class="grid">
+<a class="card" href="https://bharatwikisocrates.github.io/bharatpedia-draft-reviewer/">
+<span class="icon">📝</span><h2>Draft Reviewer</h2><p>Review pending AfC drafts with search, sort, and filter. Find stale drafts and G13-eligible pages.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="admin-command-center.html">
+<span class="icon">🎛️</span><h2>Admin Command Center</h2><p>All backlogs in one dashboard: CSD, AfD, stale drafts, new pages. Auto-refreshes every 60 seconds.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="csd-dashboard.html">
+<span class="icon">🗑️</span><h2>CSD Dashboard</h2><p>Enhanced speedy deletion backlog manager. Sort by oldest, see reasons, direct delete links.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="new-pages-patrol.html">
+<span class="icon">🆕</span><h2>New Pages Patrol</h2><p>Review the newest pages. Flags short articles, missing references, and new-user creations.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="vandalism-radar.html">
+<span class="icon">🚨</span><h2>Vandalism Radar</h2><p>Recent changes flagged by risk level. Detects large deletions, ALL CAPS, spam patterns.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="user-contributions-analyzer.html">
+<span class="icon">👤</span><h2>User Contributions Analyzer</h2><p>Deep dive into any user's edit history. Namespace breakdown, top pages, block status.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="duplicate-finder.html">
+<span class="icon">📋</span><h2>Duplicate Finder</h2><p>Find potentially duplicate articles by title similarity. Helps identify merge candidates.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="stale-draft-rescuer.html">
+<span class="icon">♻️</span><h2>Stale Draft Rescuer</h2><p>Find abandoned drafts with real potential. Sorted by size, badges for rescue-worthy pages.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="dead-link-checker.html">
+<span class="icon">🔗</span><h2>Dead Link Checker</h2><p>Extract external links from any article's references. Identify potentially dead URLs.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="image-gap-finder.html">
+<span class="icon">🖼️</span><h2>Image Gap Finder</h2><p>Find articles in a category with no images. Prioritize visual improvements.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="file-analyzer.html">
+<span class="icon">📁</span><h2>File Analyzer</h2><p>Analyze uploaded files by size, type, usage. Find unused files for cleanup.</p><span class="go">Open tool →</span>
+</a>
+<a class="card" href="sock-checker.html">
+<span class="icon">🔍</span><h2>Account Overlap Analyzer</h2><p>Compare public edit patterns of two accounts. Shared pages, active hours, overlap score.</p><span class="go">Open tool →</span>
+</a>
+</div>
+<footer>
+<p>All tools use the public Bharatpedia API. No login required for read operations.</p>
+</footer>
+</div>
+</body>
+</html>

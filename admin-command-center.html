@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Admin Command Center - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --danger: #b3261e; --danger-soft: #fbe7e5; --warn: #9a6a00; --warn-soft: #fbf0cd; --ok: #1e7a3c; --ok-soft: #e2f3e6; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --danger: #f0837c; --danger-soft: #3d1f1d; --warn: #e0b95c; --warn-soft: #3a3013; --ok: #5cc47c; --ok-soft: #1d3626; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 1000px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+button { padding: 8px 18px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+.auto { font-size: 13px; color: var(--ink-soft); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); text-decoration: none; color: inherit; }
+.tile .num { font-size: 36px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile .lbl { font-size: 14px; color: var(--ink-soft); margin-top: 4px; }
+.tile .go { font-size: 13px; font-weight: 600; color: var(--accent); margin-top: 8px; display: block; }
+.tile.alert .num { color: var(--danger); }
+.tile.warn .num { color: var(--warn); }
+.tile.ok .num { color: var(--ok); }
+.updated { margin-top: 18px; font-size: 13px; color: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Admin Command Center</h1>
+<p class="sub">Every backlog that matters, on one screen. Counts refresh automatically.</p>
+<div class="topbar">
+<button id="go" onclick="refresh(true)">Refresh now</button>
+<span class="auto"><label><input type="checkbox" id="auto" checked /> Auto-refresh every 60s</label></span>
+</div>
+<div class="grid" id="grid"></div>
+<div class="updated" id="updated"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const WIKI = "https://en.bharatpedia.org/wiki/";
+const TILES = [
+  { key: "csd", label: "Speedy deletion backlog", cat: "Category:Candidates for speedy deletion", link: WIKI + "Category:Candidates_for_speedy_deletion" },
+  { key: "afd", label: "Articles for deletion", cat: "Category:Articles for deletion", link: WIKI + "Category:Articles_for_deletion" },
+  { key: "stale", label: "Stale drafts", cat: "Category:Stale drafts", link: WIKI + "Category:Stale_drafts" },
+  { key: "afc", label: "Pending AfC submissions", cat: "Category:Pending AfC submissions", link: WIKI + "Category:Pending_AfC_submissions" },
+  { key: "uncat", label: "Uncategorized pages", cat: "Category:Uncategorized pages", link: WIKI + "Category:Uncategorized_pages" },
+  { key: "orphan", label: "Orphaned articles", cat: "Category:Orphaned articles", link: WIKI + "Category:Orphaned_articles" },
+];
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url); return r.json();
+}
+async function countCat(cat) {
+  const d = await api({ action: "query", prop: "categoryinfo", titles: cat });
+  const pages = d.query.pages || {};
+  const pg = pages[Object.keys(pages)[0]];
+  return pg && pg.categoryinfo ? (pg.categoryinfo.pages || 0) : 0;
+}
+async function countNewPages() {
+  const d = await api({ action: "query", list: "recentchanges", rctype: "new", rcnamespace: 0, rclimit: 1, rcstart: new Date(Date.now() - 86400000).toISOString(), rcdir: "older" });
+  return (d.query.recentchanges || []).length ? "24h" : 0;
+}
+async function refresh(manual) {
+  const btn = document.getElementById("go"), grid = document.getElementById("grid"), upd = document.getElementById("updated");
+  btn.disabled = true;
+  const results = [];
+  for (const t of TILES) {
+    try { results.push({ t, n: await countCat(t.cat) }); }
+    catch (e) { results.push({ t, n: "?" }); }
+  }
+  grid.innerHTML = results.map(({ t, n }) => {
+    const cls = typeof n === "number" ? (n > 20 ? "alert" : n > 0 ? "warn" : "ok") : "";
+    return `<a class="tile ${cls}" href="${t.link}" target="_blank" rel="noopener"><div class="num">${n}</div><div class="lbl">${t.label}</div><span class="go">Open &rarr;</span></a>`;
+  }).join("");
+  upd.textContent = "Last updated: " + new Date().toLocaleTimeString("en-GB");
+  btn.disabled = false;
+}
+setInterval(() => { if (document.getElementById("auto").checked) refresh(false); }, 60000);
+refresh(false);
+</script>
+</body>
+</html>
