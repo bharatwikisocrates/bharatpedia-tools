@@ -189,6 +189,31 @@
     color: var(--ink-soft);
   }
   .back-link { display: inline-block; margin-bottom: 14px; font-size: 14px; }
+  .gen-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 16px;
+    margin-top: 16px;
+    display: none;
+  }
+  .gen-card h2 { margin: 0 0 8px; font-size: 18px; }
+  .gen-card p.hint { margin: 0 0 12px; font-size: 14px; color: var(--ink-soft); }
+  .gen-card textarea {
+    width: 100%;
+    min-height: 220px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--ink);
+    resize: vertical;
+  }
+  .gen-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .gen-summary { font-size: 14px; margin: 8px 0 0; color: var(--ink-soft); }
   @media (max-width: 640px) {
     table, thead, tbody, th, td, tr { display: block; }
     thead { display: none; }
@@ -249,6 +274,24 @@
       <tbody id="resultsBody"></tbody>
     </table>
   </div>
+
+  <div class="gen-card" id="genCard">
+    <h2>Auto-replace URLs in wikitext</h2>
+    <p class="hint">Generates updated wikitext with archive URLs added to citation templates and bare URLs swapped for their archived copies.</p>
+    <div class="gen-actions">
+      <button id="genBtn" disabled>Generate Updated Wikitext</button>
+    </div>
+    <p class="gen-summary" id="genSummary"></p>
+    <div id="genOutput" style="display:none; margin-top:12px;">
+      <textarea id="genTextarea" readonly></textarea>
+      <div class="gen-actions">
+        <button id="copyBtn" class="secondary">Copy to Clipboard</button>
+        <button id="editBtn" class="secondary">Open in Bharatpedia Editor</button>
+      </div>
+      <p class="hint" style="margin-top:10px;">Copy the wikitext above, paste it into the Bharatpedia editor, review the changes, then publish.</p>
+    </div>
+  </div>
+
   <div class="empty" id="emptyState">Enter an article title above to scan its references.</div>
 </div>
 
@@ -273,8 +316,18 @@
   var resultsCard = document.getElementById("resultsCard");
   var resultsBody = document.getElementById("resultsBody");
   var emptyState = document.getElementById("emptyState");
+  var genCard = document.getElementById("genCard");
+  var genBtn = document.getElementById("genBtn");
+  var genSummary = document.getElementById("genSummary");
+  var genOutput = document.getElementById("genOutput");
+  var genTextarea = document.getElementById("genTextarea");
+  var copyBtn = document.getElementById("copyBtn");
+  var editBtn = document.getElementById("editBtn");
 
   var unarchivedUrls = [];
+  var originalWikitext = "";
+  var scannedTitle = "";
+  var archiveMap = {}; // original URL -> { archiveUrl, timestamp }
 
   function setProgress(pct, text) {
     progressWrap.style.display = "block";
@@ -358,11 +411,16 @@
   function renderRows(results) {
     resultsBody.innerHTML = "";
     unarchivedUrls = [];
+    archiveMap = {};
     var archivedCount = 0;
 
     results.forEach(function (r) {
-      if (r.archived) archivedCount++;
-      else unarchivedUrls.push(r.url);
+      if (r.archived) {
+        archivedCount++;
+        archiveMap[r.url] = { archiveUrl: r.archiveUrl, timestamp: r.timestamp || "" };
+      } else {
+        unarchivedUrls.push(r.url);
+      }
 
       var tr = document.createElement("tr");
 
@@ -434,7 +492,110 @@
     resultsCard.style.display = "block";
     emptyState.style.display = "none";
     archiveAllNote.style.display = unarchivedUrls.length ? "block" : "none";
+
+    // Auto-replace section: show when at least one archive URL exists
+    var hasArchives = Object.keys(archiveMap).length > 0;
+    genCard.style.display = "block";
+    genBtn.disabled = !hasArchives;
+    genOutput.style.display = "none";
+    genSummary.textContent = hasArchives
+      ? archivedCount + " archived URL(s) ready to merge into the wikitext."
+      : "No archived URLs found yet, so there is nothing to merge.";
   }
+
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // Pull YYYYMMDDHHMMSS out of a web.archive.org URL and format as YYYY-MM-DD
+  function archiveDate(archiveUrl) {
+    var m = /web\.archive\.org\/web\/(\d{4})(\d{2})(\d{2})\d{6}/.exec(archiveUrl || "");
+    if (m) return m[1] + "-" + m[2] + "-" + m[3];
+    return "";
+  }
+
+  function generateWikitext() {
+    if (!originalWikitext) return;
+    var text = originalWikitext;
+    var replacedTemplates = 0;
+    var replacedBare = 0;
+
+    Object.keys(archiveMap).forEach(function (orig) {
+      // Never touch URLs that already point at the Wayback Machine
+      if (/web\.archive\.org/i.test(orig)) return;
+      var info = archiveMap[orig];
+      var arch = info.archiveUrl;
+      var date = archiveDate(arch);
+      var eOrig = escapeRegExp(orig);
+
+      // 1. Citation templates: add archive-url after |url= when not already present.
+      // Handle templates that contain |url=<orig> without an |archive-url= anywhere inside.
+      var reCite = new RegExp(
+        "(\\{\\{\\s*[Cc]ite[^}]*?\\|\\s*url\\s*=\\s*)" + eOrig + "(?=[\\s|}\\]])",
+        "g"
+      );
+      text = text.replace(reCite, function (match, prefix, offset, full) {
+        // Find the enclosing template to check for existing archive-url
+        var open = full.lastIndexOf("{{", offset);
+        var close = full.indexOf("}}", offset);
+        var tpl = open !== -1 && close !== -1 ? full.slice(open, close + 2) : "";
+        if (/\|\s*archive-url\s*=/i.test(tpl)) return match; // already has one
+        replacedTemplates++;
+        var params = " |archive-url=" + arch;
+        if (date) params += " |archive-date=" + date;
+        params += " |url-status=dead";
+        return prefix + orig + params;
+      });
+
+      // 2. Bare URLs outside citation templates: swap for the archive copy.
+      // Only match URLs not preceded by "|url=" or "archive-url=" context.
+      var reBare = new RegExp("(^|[\\s\\(\\[\"'>])" + eOrig + "(?=[\\s\\)\\]\"'<.,;:!?]|$)", "g");
+      text = text.replace(reBare, function (match, lead) {
+        // Skip if this occurrence sits inside a |url= or |archive-url= parameter
+        var idx = arguments[arguments.length - 2];
+        var before = text.slice(Math.max(0, idx - 40), idx);
+        if (/\|\s*url\s*=\s*$/i.test(before) || /\|\s*archive-url\s*=\s*$/i.test(before)) return match;
+        replacedBare++;
+        return lead + arch;
+      });
+    });
+
+    genTextarea.value = text;
+    genOutput.style.display = "block";
+    var total = replacedTemplates + replacedBare;
+    genSummary.textContent = total > 0
+      ? "Done: " + replacedTemplates + " citation template(s) updated, " +
+        replacedBare + " bare URL(s) replaced. Review below before publishing."
+      : "No replacements were made. The archived URLs may already be present in the wikitext.";
+    genTextarea.scrollTop = 0;
+  }
+
+  genBtn.addEventListener("click", generateWikitext);
+
+  copyBtn.addEventListener("click", function () {
+    genTextarea.select();
+    var done = function () { copyBtn.textContent = "Copied!"; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(genTextarea.value).then(done, function () {
+        document.execCommand("copy");
+        done();
+      });
+    } else {
+      document.execCommand("copy");
+      done();
+    }
+    setTimeout(function () { copyBtn.textContent = "Copy to Clipboard"; }, 2000);
+  });
+
+  editBtn.addEventListener("click", function () {
+    if (!scannedTitle) return;
+    window.open(
+      "https://en.bharatpedia.org/w/index.php?title=" +
+      encodeURIComponent(scannedTitle.replace(/ /g, "_")) +
+      "&action=edit",
+      "_blank", "noopener"
+    );
+  });
 
   function scan() {
     var title = titleInput.value.trim();
@@ -443,6 +604,14 @@
       return;
     }
     scanBtn.disabled = true;
+    // reset auto-replace state for the new scan
+    originalWikitext = "";
+    scannedTitle = "";
+    archiveMap = {};
+    genCard.style.display = "none";
+    genOutput.style.display = "none";
+    genSummary.textContent = "";
+    genBtn.disabled = true;
     setProgress(0.05, "Fetching article wikitext...");
 
     var apiUrl = BP_API +
@@ -456,6 +625,8 @@
           throw new Error("Article not found or has no content.");
         }
         var wikitext = data.parse.wikitext["*"] || "";
+        originalWikitext = wikitext;
+        scannedTitle = title;
         var urls = extractUrls(wikitext);
 
         if (!urls.length) {
