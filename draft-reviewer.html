@@ -313,7 +313,7 @@
           <li><strong>Notability first.</strong> Does the subject have significant coverage in reliable, independent sources? If there is no sign the subject could ever meet the notability guidelines, it should not be accepted.</li>
           <li><strong>Read the sources, not just the text.</strong> Open the references. Blogs, press releases, the subject's own website and social media do not establish notability on their own.</li>
           <li><strong>Check for problems.</strong> Advertising tone, copyright violations copied from websites, unsourced claims about living people, and machine-translated or garbled text all need fixing before acceptance.</li>
-          <li><strong>Open the Review link</strong> (the draft's talk page) to leave your review, ask the creator questions, or record the outcome of your check.</li>
+          <li><strong>Open the Review link</strong> (the draft page) to read the draft content and review it.</li>
         </ol>
         <h3>After reviewing</h3>
         <ul>
@@ -526,7 +526,7 @@
             var tdA = document.createElement("td");
             tdA.className = "actions-cell";
             var review = document.createElement("a");
-            review.href = WIKI + encodeURIComponent("Draft talk:" + d.short.replace(/ /g, "_"));
+            review.href = WIKI + encodeURIComponent(d.title.replace(/ /g, "_"));
             review.target = "_blank";
             review.rel = "noopener";
             review.textContent = "Review";
