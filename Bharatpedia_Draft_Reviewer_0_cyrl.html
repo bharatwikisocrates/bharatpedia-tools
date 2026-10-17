@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Bharatpedia Draft Reviewer</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f5f0;
+        --surface: #ffffff;
+        --surface-2: #f0ede6;
+        --ink: #1c2430;
+        --ink-soft: #4c5866;
+        --ink-faint: #77828f;
+        --line: #ddd8cc;
+        --accent: #b3540a;
+        --accent-ink: #ffffff;
+        --accent-soft: #fbeedd;
+        --ok: #1e7a3c;
+        --ok-soft: #e2f3e6;
+        --warn: #9a6a00;
+        --warn-soft: #fbf0cd;
+        --danger: #b3261e;
+        --danger-soft: #fbe7e5;
+        --focus: #2f6fed;
+        --shadow: 0 1px 2px rgba(28, 36, 48, .06), 0 4px 14px rgba(28, 36, 48, .05);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14171c;
+          --surface: #1d222a;
+          --surface-2: #262c36;
+          --ink: #e8ebef;
+          --ink-soft: #b3bcc7;
+          --ink-faint: #828e9c;
+          --line: #343c48;
+          --accent: #e08a3c;
+          --accent-ink: #1c1408;
+          --accent-soft: #3a2a16;
+          --ok: #5cc47c;
+          --ok-soft: #1d3626;
+          --warn: #e0b95c;
+          --warn-soft: #3a3013;
+          --danger: #f0837c;
+          --danger-soft: #3d1f1d;
+          --focus: #7aa5ff;
+          --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25);
+        }
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Avenir Next", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      a { color: var(--accent); }
+      a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      .wrap { max-width: 1060px; margin: 0 auto; padding: 20px 16px 56px; }
+
+      header.page-head { margin: 6px 0 18px; }
+      header.page-head h1 {
+        margin: 0 0 6px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(26px, 5vw, 36px);
+        font-weight: 700;
+        letter-spacing: -.01em;
+      }
+      header.page-head p { margin: 0; color: var(--ink-soft); max-width: 65ch; }
+
+      .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+      .stat {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 16px;
+        min-width: 130px;
+        box-shadow: var(--shadow);
+      }
+      .stat b { display: block; font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+      .stat span { font-size: 12.5px; color: var(--ink-soft); }
+
+      .controls {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        padding: 14px;
+        display: grid;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .controls .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+      .field { display: flex; flex-direction: column; gap: 5px; }
+      .field.grow { flex: 1 1 240px; }
+      .field label { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+      .field input[type="search"], .field select {
+        font: inherit;
+        font-size: 15px;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 11px;
+        min-height: 42px;
+      }
+      .field input[type="search"] { width: 100%; }
+      .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+      .chip {
+        font: inherit;
+        font-size: 14px;
+        padding: 7px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        color: var(--ink);
+        cursor: pointer;
+      }
+      .chip[aria-pressed="true"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-ink);
+        font-weight: 600;
+      }
+      .btn {
+        font: inherit;
+        font-size: 14.5px;
+        font-weight: 600;
+        padding: 9px 16px;
+        min-height: 42px;
+        border-radius: 8px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--accent-ink);
+        cursor: pointer;
+      }
+      .btn.secondary { background: transparent; color: var(--accent); }
+      .btn:disabled { opacity: .55; cursor: wait; }
+
+      .status-line { font-size: 14px; color: var(--ink-soft); margin: 0 0 10px; min-height: 21px; }
+      .status-line.error { color: var(--danger); }
+
+      .table-card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      table { width: 100%; border-collapse: collapse; }
+      thead th {
+        text-align: left;
+        font-size: 12.5px;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+        background: var(--surface-2);
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      tbody td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      tbody tr:last-child td { border-bottom: none; }
+      tbody tr:hover { background: var(--surface-2); }
+      td.title-cell { min-width: 0; }
+      td.title-cell a.draft-link { font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+      td.title-cell a.draft-link:hover { text-decoration: underline; }
+      .meta { display: block; font-size: 12.5px; color: var(--ink-faint); margin-top: 2px; }
+      td.date-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      td.date-cell .rel { display: block; font-size: 12.5px; color: var(--ink-faint); }
+      td.actions-cell { white-space: nowrap; }
+      td.actions-cell a { font-weight: 600; text-decoration: none; margin-right: 14px; }
+      td.actions-cell a:hover { text-decoration: underline; }
+      td.actions-cell a.delete-link { color: var(--danger); }
+
+      .badge {
+        display: inline-block;
+        font-size: 11.5px;
+        font-weight: 700;
+        letter-spacing: .02em;
+        padding: 2px 8px;
+        border-radius: 999px;
+        margin-left: 8px;
+        vertical-align: 2px;
+        white-space: nowrap;
+      }
+      .badge.review { background: var(--ok-soft); color: var(--ok); }
+      .badge.stale { background: var(--warn-soft); color: var(--warn); }
+      .badge.g13 { background: var(--danger-soft); color: var(--danger); }
+
+      .empty {
+        padding: 34px 18px;
+        text-align: center;
+        color: var(--ink-soft);
+      }
+      .skeleton td { color: var(--ink-faint); }
+
+      section.guide {
+        margin-top: 34px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        padding: 20px 22px;
+      }
+      section.guide h2 {
+        margin: 0 0 8px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 22px;
+      }
+      section.guide h3 { margin: 18px 0 6px; font-size: 16.5px; }
+      section.guide p, section.guide li { color: var(--ink-soft); }
+      section.guide ol, section.guide ul { margin: 6px 0; padding-left: 22px; }
+      section.guide li { margin: 4px 0; }
+      section.guide strong { color: var(--ink); }
+
+      footer.page-foot { margin-top: 26px; font-size: 13px; color: var(--ink-faint); }
+
+      /* Phone: table becomes stacked cards, no sideways scroll */
+      @media (max-width: 640px) {
+        .wrap { padding: 14px 10px 44px; }
+        table, tbody, tr, td { display: block; width: 100%; }
+        thead { position: absolute; left: -9999px; top: -9999px; }
+        tbody tr { padding: 10px 2px; border-bottom: 1px solid var(--line); }
+        tbody tr:last-child { border-bottom: none; }
+        tbody td { border-bottom: none; padding: 3px 12px; }
+        td.date-cell { white-space: normal; }
+        td.date-cell .rel { display: inline; margin-left: 6px; }
+        td.actions-cell { padding-top: 8px; padding-bottom: 10px; }
+        td.actions-cell a {
+          display: inline-block;
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          padding: 7px 14px;
+          margin: 0 8px 4px 0;
+          background: var(--surface-2);
+        }
+        .stat { min-width: 0; flex: 1 1 100px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="page-head">
+        <h1>Draft Reviewer</h1>
+        <p>Every draft in the Draft namespace on Bharatpedia, loaded live from the wiki. Work through the queue: open a draft, review it from its talk page, or send it to deletion.</p>
+      </header>
+
+      <div class="stats" aria-live="polite">
+        <div class="stat"><b id="stat-total">–</b><span>Total drafts</span></div>
+        <div class="stat"><b id="stat-review">–</b><span>Awaiting review</span></div>
+        <div class="stat"><b id="stat-stale">–</b><span>Untouched 6+ months</span></div>
+        <div class="stat"><b id="stat-shown">–</b><span>Shown below</span></div>
+      </div>
+
+      <div class="controls">
+        <div class="row">
+          <div class="field grow">
+            <label for="search">Search drafts</label>
+            <input type="search" id="search" placeholder="Type a title, e.g. cricket, port, election…" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="sort">Sort by</label>
+            <select id="sort">
+              <option value="review-first">Awaiting review first</option>
+              <option value="stale">Stale first (oldest edit)</option>
+              <option value="recent">Recent first (newest edit)</option>
+              <option value="az">Title A–Z</option>
+              <option value="za">Title Z–A</option>
+            </select>
+          </div>
+          <button class="btn secondary" id="refresh" type="button">Reload list</button>
+        </div>
+        <div class="row">
+          <div class="chips" role="group" aria-label="Filter drafts">
+            <button class="chip" type="button" data-filter="all" aria-pressed="true">All drafts</button>
+            <button class="chip" type="button" data-filter="review" aria-pressed="false">Awaiting review</button>
+            <button class="chip" type="button" data-filter="stale" aria-pressed="false">Stale (6+ months)</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="status-line" id="status" role="status">Loading drafts from Bharatpedia…</p>
+
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Draft</th>
+              <th scope="col">Last edited</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr class="skeleton"><td colspan="3">Loading…</td></tr>
+          </tbody>
+        </table>
+        <div class="empty" id="empty" hidden>No drafts match your search or filter.</div>
+      </div>
+
+      <section class="guide" aria-labelledby="guide-title">
+        <h2 id="guide-title">How to review a draft (AfC)</h2>
+        <p>Drafts marked <strong>Awaiting review</strong> were submitted by their creator through Articles for Creation. Anyone can review them — you do not need to be an admin. Work through these checks before deciding:</p>
+        <ol>
+          <li><strong>Notability first.</strong> Does the subject have significant coverage in reliable, independent sources? If there is no sign the subject could ever meet the notability guidelines, it should not be accepted.</li>
+          <li><strong>Read the sources, not just the text.</strong> Open the references. Blogs, press releases, the subject's own website and social media do not establish notability on their own.</li>
+          <li><strong>Check for problems.</strong> Advertising tone, copyright violations copied from websites, unsourced claims about living people, and machine-translated or garbled text all need fixing before acceptance.</li>
+          <li><strong>Open the Review link</strong> (the draft's talk page) to leave your review, ask the creator questions, or record the outcome of your check.</li>
+        </ol>
+        <h3>After reviewing</h3>
+        <ul>
+          <li><strong>Good enough, even if short:</strong> if a draft is notable and the basics are in place, move it to the main (article) namespace with a stub tag instead of deleting it or leaving it to rot — a short article with basic information is better than losing a notable topic. The creator or other editors can expand it later.</li>
+          <li><strong>Not ready yet:</strong> decline it on the talk page with a clear, friendly reason and tell the creator exactly what to fix (more independent sources, neutral tone, etc.). Many creators are new editors — a specific reason gets the draft fixed; a bare rejection does not.</li>
+          <li><strong>Hopeless cases:</strong> spam, hoaxes, clear advertisements and copyright violations can go straight to deletion with the <strong>Delete</strong> link (admins only can complete the deletion).</li>
+          <li><strong>Abandoned drafts:</strong> drafts untouched for over six months are flagged here as <strong>G13 eligible</strong> — they may be deleted under the G13 criterion, but check first whether the topic is notable before nominating.</li>
+        </ul>
+      </section>
+
+      <footer class="page-foot">
+        Data is fetched live from the Bharatpedia API each time this page loads. “Awaiting review” follows the wiki's <em>Pending AfC submissions</em> category, so a draft whose submission template was removed by hand may take a little while to drop off that list.
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var API = "https://en.bharatpedia.org/w/api.php";
+        var WIKI = "https://en.bharatpedia.org/wiki/";
+        var SIX_MONTHS = 1000 * 60 * 60 * 24 * 182.5;
+
+        var els = {
+          rows: document.getElementById("rows"),
+          empty: document.getElementById("empty"),
+          status: document.getElementById("status"),
+          search: document.getElementById("search"),
+          sort: document.getElementById("sort"),
+          refresh: document.getElementById("refresh"),
+          statTotal: document.getElementById("stat-total"),
+          statReview: document.getElementById("stat-review"),
+          statStale: document.getElementById("stat-stale"),
+          statShown: document.getElementById("stat-shown")
+        };
+
+        var drafts = [];       // {pageid, title, short, touched (ms), editor, bytes, pending}
+        var pendingIds = {};   // pageid -> true
+        var activeFilter = "all";
+        var loaded = false;
+
+        function apiGet(params) {
+          var qs = Object.keys(params).map(function (k) {
+            return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
+          }).join("&");
+          return fetch(API + "?" + qs + "&format=json&origin=*").then(function (r) {
+            if (!r.ok) throw new Error("API returned HTTP " + r.status);
+            return r.json();
+          });
+        }
+
+        // All members of a category, following continuation.
+        function fetchPending() {
+          var found = {};
+          function step(cont) {
+            var p = {
+              action: "query",
+              list: "categorymembers",
+              cmtitle: "Category:Pending AfC submissions",
+              cmtype: "page",
+              cmnamespace: 118,
+              cmlimit: "max"
+            };
+            if (cont) p.cmcontinue = cont;
+            return apiGet(p).then(function (data) {
+              (data.query.categorymembers || []).forEach(function (m) { found[m.pageid] = true; });
+              if (data.continue && data.continue.cmcontinue) return step(data.continue.cmcontinue);
+              return found;
+            });
+          }
+          return step(null);
+        }
+
+        // All Draft-namespace pages with last-edit time and last editor.
+        function fetchDrafts() {
+          var out = [];
+          function step(cont) {
+            var p = {
+              action: "query",
+              generator: "allpages",
+              gapnamespace: 118,
+              gaplimit: "max",
+              prop: "revisions|info",
+              rvprop: "timestamp|user",
+              inprop: ""
+            };
+            if (cont) p.gapcontinue = cont;
+            return apiGet(p).then(function (data) {
+              var pages = data.query && data.query.pages ? data.query.pages : {};
+              Object.keys(pages).forEach(function (id) {
+                var pg = pages[id];
+                if (pg.ns !== 118 || pg.missing !== undefined) return;
+                var rev = (pg.revisions && pg.revisions[0]) || {};
+                out.push({
+                  pageid: pg.pageid,
+                  title: pg.title,
+                  short: pg.title.replace(/^Draft:/, ""),
+                  touched: rev.timestamp ? Date.parse(rev.timestamp) : (pg.touched ? Date.parse(pg.touched) : 0),
+                  editor: rev.user || "",
+                  bytes: typeof pg.length === "number" ? pg.length : null,
+                  pending: !!pendingIds[pg.pageid]
+                });
+              });
+              els.status.textContent = "Loading drafts from Bharatpedia… " + out.length + " so far";
+              if (data.continue && data.continue.gapcontinue) return step(data.continue.gapcontinue);
+              return out;
+            });
+          }
+          return step(null);
+        }
+
+        function fmtDate(ms) {
+          if (!ms) return "—";
+          var d = new Date(ms);
+          return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+        }
+        function fmtRel(ms) {
+          if (!ms) return "";
+          var diff = Date.now() - ms;
+          var days = Math.floor(diff / 86400000);
+          if (days <= 0) return "today";
+          if (days === 1) return "yesterday";
+          if (days < 30) return days + " days ago";
+          var months = Math.floor(days / 30.44);
+          if (months < 12) return months + (months === 1 ? " month ago" : " months ago");
+          var years = Math.floor(days / 365.25);
+          return years + (years === 1 ? " year ago" : " years ago");
+        }
+
+        function visibleDrafts() {
+          var q = els.search.value.trim().toLowerCase();
+          var list = drafts.filter(function (d) {
+            if (activeFilter === "review" && !d.pending) return false;
+            if (activeFilter === "stale" && !(d.touched && Date.now() - d.touched >= SIX_MONTHS)) return false;
+            if (q && d.title.toLowerCase().indexOf(q) === -1 && d.short.toLowerCase().indexOf(q) === -1) return false;
+            return true;
+          });
+          var mode = els.sort.value;
+          list.sort(function (a, b) {
+            if (mode === "az") return a.short.localeCompare(b.short);
+            if (mode === "za") return b.short.localeCompare(a.short);
+            if (mode === "recent") return b.touched - a.touched;
+            if (mode === "review-first") {
+              if (a.pending !== b.pending) return a.pending ? -1 : 1;
+              return a.touched - b.touched;
+            }
+            return a.touched - b.touched; // stale first
+          });
+          return list;
+        }
+
+        function render() {
+          var list = visibleDrafts();
+          els.statShown.textContent = loaded ? list.length : "–";
+          els.rows.innerHTML = "";
+          els.empty.hidden = list.length !== 0;
+
+          var frag = document.createDocumentFragment();
+          list.forEach(function (d) {
+            var tr = document.createElement("tr");
+
+            // Title cell
+            var tdT = document.createElement("td");
+            tdT.className = "title-cell";
+            var a = document.createElement("a");
+            a.className = "draft-link";
+            a.href = WIKI + encodeURIComponent(d.title.replace(/ /g, "_"));
+            a.target = "_blank";
+            a.rel = "noopener";
+            a.textContent = d.short;
+            tdT.appendChild(a);
+            if (d.pending) {
+              var b1 = document.createElement("span");
+              b1.className = "badge review";
+              b1.textContent = "Awaiting review";
+              tdT.appendChild(b1);
+            }
+            if (d.touched && Date.now() - d.touched >= SIX_MONTHS) {
+              var b2 = document.createElement("span");
+              b2.className = "badge g13";
+              b2.textContent = "G13 eligible";
+              tdT.appendChild(b2);
+            } else if (d.touched && Date.now() - d.touched >= 1000 * 60 * 60 * 24 * 90) {
+              var b3 = document.createElement("span");
+              b3.className = "badge stale";
+              b3.textContent = "Stale";
+              tdT.appendChild(b3);
+            }
+            if (d.editor || d.bytes !== null) {
+              var meta = document.createElement("span");
+              meta.className = "meta";
+              var parts = [];
+              if (d.editor) parts.push("last edit by " + d.editor);
+              if (d.bytes !== null) parts.push(d.bytes.toLocaleString("en-IN") + " bytes");
+              meta.textContent = parts.join(" · ");
+              tdT.appendChild(meta);
+            }
+            tr.appendChild(tdT);
+
+            // Date cell
+            var tdD = document.createElement("td");
+            tdD.className = "date-cell";
+            tdD.textContent = fmtDate(d.touched);
+            var rel = document.createElement("span");
+            rel.className = "rel";
+            rel.textContent = fmtRel(d.touched);
+            tdD.appendChild(rel);
+            tr.appendChild(tdD);
+
+            // Actions cell
+            var tdA = document.createElement("td");
+            tdA.className = "actions-cell";
+            var review = document.createElement("a");
+            review.href = WIKI + encodeURIComponent("Draft talk:" + d.short.replace(/ /g, "_"));
+            review.target = "_blank";
+            review.rel = "noopener";
+            review.textContent = "Review";
+            tdA.appendChild(review);
+            var del = document.createElement("a");
+            del.className = "delete-link";
+            del.href = WIKI + "Special:Delete/" + encodeURIComponent(d.title.replace(/ /g, "_"));
+            del.target = "_blank";
+            del.rel = "noopener";
+            del.textContent = "Delete";
+            tdA.appendChild(del);
+            tr.appendChild(tdA);
+
+            frag.appendChild(tr);
+          });
+          els.rows.appendChild(frag);
+        }
+
+        function updateStats() {
+          var now = Date.now();
+          els.statTotal.textContent = drafts.length;
+          els.statReview.textContent = drafts.filter(function (d) { return d.pending; }).length;
+          els.statStale.textContent = drafts.filter(function (d) {
+            return d.touched && now - d.touched >= SIX_MONTHS;
+          }).length;
+        }
+
+        function load() {
+          loaded = false;
+          els.refresh.disabled = true;
+          els.status.className = "status-line";
+          els.status.textContent = "Loading drafts from Bharatpedia…";
+          els.rows.innerHTML = '<tr class="skeleton"><td colspan="3">Loading…</td></tr>';
+          fetchPending()
+            .then(function (found) {
+              pendingIds = found;
+              return fetchDrafts();
+            })
+            .then(function (list) {
+              drafts = list;
+              loaded = true;
+              updateStats();
+              render();
+              els.status.textContent = "Loaded " + drafts.length + " drafts · " +
+                drafts.filter(function (d) { return d.pending; }).length +
+                " awaiting review · updated " + new Date().toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+            })
+            .catch(function (err) {
+              els.status.className = "status-line error";
+              els.status.textContent = "Could not load drafts from Bharatpedia (" + err.message + "). Check your connection and tap Reload list.";
+              els.rows.innerHTML = "";
+              els.empty.hidden = false;
+              els.empty.textContent = "Nothing loaded yet — tap “Reload list” above to try again.";
+            })
+            .then(function () { els.refresh.disabled = false; });
+        }
+
+        // Wire controls (all present in the static HTML from the start)
+        var searchTimer = null;
+        els.search.addEventListener("input", function () {
+          clearTimeout(searchTimer);
+          searchTimer = setTimeout(render, 120);
+        });
+        els.sort.addEventListener("change", render);
+        els.refresh.addEventListener("click", load);
+        document.querySelectorAll(".chip").forEach(function (chip) {
+          chip.addEventListener("click", function () {
+            activeFilter = chip.getAttribute("data-filter");
+            document.querySelectorAll(".chip").forEach(function (c) {
+              c.setAttribute("aria-pressed", c === chip ? "true" : "false");
+            });
+            render();
+          });
+        });
+
+        load();
+      })();
+    </script>
+  </body>
+</html>
