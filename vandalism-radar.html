@@ -77,10 +77,23 @@ async function load() {
   try {
     const d = await api({ action: "query", list: "recentchanges", rcprop: "title|user|timestamp|comment|sizes|flags", rctype: "edit|new", rcnamespace: 0, rclimit: limit, rcdir: "older" });
     const list = (d.query && d.query.recentchanges) || [];
-    const scored = list.map(rc => Object.assign({ rc }, scoreEdit(rc)));
+    st.textContent = "Checking trusted users...";
+    const users = [...new Set(list.map(rc => rc.user).filter(u => u && !/^\d+\.\d+\.\d+\.\d+$/.test(u) && !u.includes(":")))];
+    const trusted = new Set();
+    if (users.length) {
+      const uq = await api({ action: "query", list: "users", ususers: users.join("|"), usprop: "groups|editcount" });
+      (uq.query.users || []).forEach(u => {
+        const groups = u.groups || [];
+        const ec = u.editcount || 0;
+        if (groups.includes("sysop") || groups.includes("bureaucrat") || ec >= 500) trusted.add(u.name);
+      });
+    }
+    const filtered = list.filter(rc => !trusted.has(rc.user));
+    const scored = filtered.map(rc => Object.assign({ rc }, scoreEdit(rc)));
     scored.sort((a, b) => b.score - a.score);
     const shown = scored.filter(s => filter === "all" || (filter === "high" && s.score >= 3) || (filter === "med" && s.score >= 1));
-    st.textContent = shown.length + " of " + list.length + " edits shown.";
+    const skipped = list.length - filtered.length;
+    st.textContent = shown.length + " of " + filtered.length + " edits shown." + (skipped ? " (" + skipped + " edits by trusted users hidden)" : "");
     res.innerHTML = shown.map(s => {
       const rc = s.rc;
       const lvl = s.score >= 3 ? "high" : s.score >= 1 ? "med" : "low";
