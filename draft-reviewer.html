@@ -404,7 +404,7 @@
               var pages = data.query && data.query.pages ? data.query.pages : {};
               Object.keys(pages).forEach(function (id) {
                 var pg = pages[id];
-                if (pg.ns !== 118 || pg.missing !== undefined) return;
+                if (pg.ns !== 118 || pg.missing !== undefined || pg.redirect !== undefined) return;
                 var rev = (pg.revisions && pg.revisions[0]) || {};
                 out.push({
                   pageid: pg.pageid,
