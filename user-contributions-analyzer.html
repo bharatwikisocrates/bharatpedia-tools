@@ -46,7 +46,7 @@ th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
 <h1>User Contributions Analyzer</h1>
 <p class="sub">Deep dive into any user's edit history, namespace activity, and account standing.</p>
 <div class="controls">
-<input type="text" id="user" placeholder="Username, e.g. Bharatwiki Socrates" />
+<input type="text" id="user" placeholder="Enter username" />
 <button id="go" onclick="analyze()">Analyze</button>
 </div>
 <div class="status" id="status"></div>
@@ -71,7 +71,7 @@ async function analyze() {
     st.textContent = "Fetching contributions...";
     let uccontinue = null; const contribs = [];
     do {
-      const p = { action: "query", list: "usercontribs", ucuser: user, ucprop: "title|timestamp|sizediff", uclimit: 200, ucdir: "older" };
+      const p = { action: "query", list: "usercontribs", ucuser: user, ucprop: "title|timestamp|sizediff|comment|flags", uclimit: 200, ucdir: "older" };
       if (uccontinue) p.uccontinue = uccontinue;
       const d = await api(p);
       (d.query.usercontribs || []).forEach(c => contribs.push(c));
@@ -79,7 +79,19 @@ async function analyze() {
       st.textContent = "Fetched " + contribs.length + " edits...";
     } while (uccontinue && contribs.length < 500);
     const nsCount = {}, pageCount = {};
-    contribs.forEach(c => { nsCount[c.ns] = (nsCount[c.ns] || 0) + 1; pageCount[c.title] = (pageCount[c.title] || 0) + 1; });
+    let newPages = 0, drafts = 0, talkEdits = 0, undoCount = 0, revertCount = 0, minorCount = 0;
+    const createdPages = [];
+    contribs.forEach(c => {
+      nsCount[c.ns] = (nsCount[c.ns] || 0) + 1;
+      pageCount[c.title] = (pageCount[c.title] || 0) + 1;
+      if (c.new !== undefined) { newPages++; createdPages.push(c); }
+      if (c.ns === 118) drafts++;
+      if (c.ns % 2 === 1 && c.ns > 0) talkEdits++;
+      if (c.minor !== undefined) minorCount++;
+      const cm = (c.comment || "").toLowerCase();
+      if (cm.includes("undo")) undoCount++;
+      if (cm.includes("revert") || cm.includes("rv ")) revertCount++;
+    });
     const maxNs = Math.max(1, ...Object.values(nsCount));
     const topPages = Object.entries(pageCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const recent = contribs.slice(0, 15);
@@ -92,10 +104,16 @@ async function analyze() {
     <div class="card"><h2><a href="${userLink}" target="_blank" rel="noopener">${esc(user)}</a> ${blocked ? '<span class="badge b-blocked">BLOCKED</span>' : '<span class="badge b-clean">Not blocked</span>'}</h2>
     <div class="stat-grid">
       <div class="stat"><b>${(info.editcount || 0).toLocaleString()}</b><span>Total edits</span></div>
+      <div class="stat"><b>${newPages}</b><span>Pages created</span></div>
+      <div class="stat"><b>${drafts}</b><span>Draft edits</span></div>
+      <div class="stat"><b>${talkEdits}</b><span>Talk edits</span></div>
+      <div class="stat"><b>${undoCount + revertCount}</b><span>Undo/Reverts</span></div>
+      <div class="stat"><b>${minorCount}</b><span>Minor edits</span></div>
       <div class="stat"><b>${regDate}</b><span>Registered</span></div>
       <div class="stat"><b>${ageDays !== null ? ageDays + " days" : "-"}</b><span>Account age</span></div>
       <div class="stat"><b>${(info.groups || []).join(", ") || "user"}</b><span>Groups</span></div>
     </div>${blocked && info.blockreason ? `<p style="font-size:14px">Block reason: ${esc(info.blockreason)}</p>` : ""}</div>
+    ${createdPages.length ? `<div class="card"><h2>Pages created (last ${createdPages.length})</h2><table><tr><th>Page</th><th>When</th></tr>${createdPages.slice(0, 15).map(c => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(c.title.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(c.title)}</a></td><td>${fmtTime(c.timestamp)}</td></tr>`).join("")}</table></div>` : ""}
     <div class="card"><h2>Edits by namespace (last ${contribs.length})</h2>
     ${Object.entries(nsCount).sort((a, b) => b[1] - a[1]).map(([ns, n]) => `<div class="nsbar"><span class="lbl">${esc(NS_NAMES[ns] || ("ns:" + ns))}</span><span class="track"><span class="fill" style="width:${Math.round(n / maxNs * 100)}%"></span></span><span class="n">${n}</span></div>`).join("")}</div>
     <div class="card"><h2>Top edited pages</h2><table><tr><th>Page</th><th>Edits</th></tr>${topPages.map(([t, n]) => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(t.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(t)}</a></td><td>${n}</td></tr>`).join("")}</table></div>
