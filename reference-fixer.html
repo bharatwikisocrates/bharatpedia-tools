@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Reference Fixer - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg:#f7f5f0; --surface:#fff; --surface-2:#f0ede6; --ink:#1c2430; --ink-soft:#4c5866; --ink-faint:#77828f; --line:#ddd8cc; --accent:#b3540a; --accent-ink:#fff; --ok:#1e7a3c; --ok-soft:#e2f3e6; --warn:#9a6a00; --warn-soft:#fbf0cd; --danger:#b3261e; --danger-soft:#fbe7e5; --info:#2f6fed; --info-soft:#e8eefb; --shadow:0 1px 2px rgba(28,36,48,.06),0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark){ :root{ --bg:#14171c; --surface:#1d222a; --surface-2:#262c36; --ink:#e8ebef; --ink-soft:#b3bcc7; --ink-faint:#828e9c; --line:#343c48; --accent:#e08a3c; --accent-ink:#1c1408; --ok:#5cc47c; --ok-soft:#1d3626; --warn:#e0b95c; --warn-soft:#3a3013; --danger:#f0837c; --danger-soft:#3d1f1d; --info:#7aa5ff; --info-soft:#22314f; --shadow:0 1px 2px rgba(0,0,0,.35),0 4px 14px rgba(0,0,0,.25);} }
+* { box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:"Avenir Next","Segoe UI",system-ui,sans-serif; font-size:16px; line-height:1.5; }
+a{ color:var(--accent); }
+.wrap{ max-width:960px; margin:0 auto; padding:20px 16px 56px; }
+.back{ display:inline-block; margin-bottom:16px; font-size:14px; text-decoration:none; }
+h1{ font-family:Georgia,serif; font-size:clamp(24px,4vw,32px); margin:0 0 8px; }
+.sub{ color:var(--ink-soft); margin:0 0 20px; }
+.controls{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:var(--shadow); display:flex; gap:10px; flex-wrap:wrap; }
+input[type=text]{ flex:1; min-width:200px; padding:10px 14px; border:1px solid var(--line); border-radius:8px; font-size:15px; background:var(--surface); color:var(--ink); }
+button{ padding:10px 20px; border:none; border-radius:8px; background:var(--accent); color:var(--accent-ink); font-size:15px; font-weight:600; cursor:pointer; }
+button:disabled{ opacity:.5; cursor:default; }
+button.ghost{ background:var(--surface-2); color:var(--ink); border:1px solid var(--line); }
+.status{ margin:12px 0; color:var(--ink-soft); font-size:14px; }
+.card{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:14px; box-shadow:var(--shadow); }
+.card h2{ margin:0 0 12px; font-size:18px; }
+.issue{ display:flex; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); font-size:14px; }
+.issue:last-child{ border-bottom:none; }
+.issue input[type=checkbox]{ margin-top:4px; flex-shrink:0; width:18px; height:18px; }
+.issue .body{ flex:1; min-width:0; }
+.tag{ display:inline-block; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:700; margin-bottom:6px; }
+.t-bare{ background:var(--danger-soft); color:var(--danger); }
+.t-label{ background:var(--warn-soft); color:var(--warn); }
+.t-dup{ background:var(--info-soft); color:var(--info); }
+.t-title{ background:var(--ok-soft); color:var(--ok); }
+.issue code{ display:block; background:var(--surface-2); border-radius:6px; padding:8px 10px; margin:6px 0; word-break:break-all; font-size:13px; white-space:pre-wrap; }
+.arrow{ color:var(--ink-faint); font-size:12px; }
+textarea{ width:100%; min-height:260px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font-family:ui-monospace,monospace; font-size:13px; }
+.row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+.note{ font-size:13px; color:var(--ink-soft); }
+.progress{ height:8px; background:var(--surface-2); border-radius:4px; overflow:hidden; margin:10px 0; }
+.progress i{ display:block; height:100%; background:var(--accent); width:0; transition:width .2s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Reference Fixer</h1>
+<p class="sub">Scan an article for broken reference styles and fix them in one go. Review each fix, then publish.</p>
+<div class="controls">
+<input type="text" id="title" placeholder="Article title" />
+<button id="scanBtn" onclick="scan()">Scan References</button>
+</div>
+<div class="status" id="status"></div>
+<div class="progress" id="pbar" style="display:none"><i id="pfill"></i></div>
+<div id="out"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+// External citation metadata service endpoint (obfuscated)
+const META_B64 = "aHR0cHM6Ly9lbi53aWtpcGVkaWEub3JnL2FwaS9yZXN0X3YxL2RhdGEvY2l0YXRpb24vbWVkaWF3aWtpLw==";
+const metaURL = u => atob(META_B64) + encodeURIComponent(u);
+
+const $ = id => document.getElementById(id);
+function esc(s){ const d=document.createElement("div"); d.textContent=(s==null?"":String(s)); return d.innerHTML; }
+
+async function api(params){
+  const url = API + "?" + new URLSearchParams(Object.assign({format:"json", origin:"*"}, params));
+  const r = await fetch(url);
+  if(!r.ok) throw new Error("API error " + r.status);
+  return r.json();
+}
+
+/* ---------- ref parsing ---------- */
+function findRefs(wt){
+  const out=[]; const re=/<ref\b[^>]*?>|<\/ref\s*>/gi; let m; const stack=[];
+  while((m=re.exec(wt))){
+    const tok=m[0];
+    if(/^<ref/i.test(tok)){
+      if(/\/\s*>$/.test(tok)) continue;
+      stack.push({start:m.index, open:tok});
+    }else{
+      const o=stack.pop();
+      if(!o) continue;
+      let attrs=o.open.replace(/^<ref\b/i,"").replace(/\s*>$/,"");
+      out.push({start:o.start, openLen:o.open.length, end:m.index+tok.length, attrs:attrs, content:wt.slice(o.start+o.open.length, m.index)});
+    }
+  }
+  return out.sort((a,b)=>a.start-b.start);
+}
+
+function primaryURL(r){
+  const cm=r.content.match(/\|\s*url\s*=\s*([^\s|}]+)/i);
+  if(cm) return cm[1].trim();
+  const m=r.content.match(/https?:\/\/[^\s<>\]"']+/i);
+  return m ? m[0].replace(/[.,;:!?)]+$/,"") : null;
+}
+
+function siteFromURL(u){ try{ return new URL(u).hostname.replace(/^www\./i,""); }catch(e){ return ""; } }
+
+function titleFromURL(u, label){
+  if(label && label.trim()) return label.trim();
+  try{
+    const uu=new URL(u);
+    let p=uu.pathname.split("/").filter(Boolean).pop()||"";
+    try{ p=decodeURIComponent(p); }catch(e){}
+    p=p.replace(/[-_+.]+/g," ").replace(/\s+/g," ").trim();
+    if(p && p.length>2 && !/^\d+$/.test(p)) return p.charAt(0).toUpperCase()+p.slice(1);
+    return uu.hostname.replace(/^www\./i,"");
+  }catch(e){ return u; }
+}
+
+async function fetchTitle(u){
+  try{
+    const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),9000);
+    const r=await fetch(metaURL(u),{signal:ctl.signal});
+    clearTimeout(t);
+    if(!r.ok) return null;
+    const j=await r.json();
+    if(Array.isArray(j)&&j[0]&&j[0].title&&String(j[0].title).trim()) return String(j[0].title).trim();
+  }catch(e){}
+  return null;
+}
+
+/* ---------- classification ---------- */
+function classifyContent(content){
+  const t=content.trim(); let m;
+  if(/^{{\s*cite[\s_]/i.test(t)) return {kind:"cite"};
+  if(m=t.match(/^\(\s*(https?:\/\/\S+?)\s+([^)]+)\)$/)) return {kind:"malformed", url:m[1], label:m[2].trim()};
+  if(m=t.match(/^\[\s*(https?:\/\/[^\s\]]+)\s+([^\]]+)\]$/)) return {kind:"urllabel", url:m[1], label:m[2].trim()};
+  if(m=t.match(/^\[\s*(https?:\/\/[^\s\]]+)\s*\]$/)) return {kind:"barebracket", url:m[1]};
+  if(m=t.match(/^(https?:\/\/\S+)$/)) return {kind:"bare", url:m[1].replace(/[.,;:!?)]+$/,"")};
+  return {kind:"other"};
+}
+
+function citeNeedsTitle(content){
+  if(!/{{\s*cite[\s_]/i.test(content.trim())) return null;
+  if(/\|\s*title\s*=/i.test(content)) return null;
+  const um=content.match(/\|\s*url\s*=\s*([^\s|}]+)/i);
+  return um ? um[1].trim() : null;
+}
+
+let itemSeq=0;
+function mkItem(o){ o.id=++itemSeq; o.checked=true; o.ranges=[]; o.proposed=""; return o; }
+function openTag(r, name){ return "<ref"+(name?' name="'+name+'"':"")+r.attrs+">"; }
+
+function buildItems(refs){
+  const items=[];
+  // duplicate URL groups
+  const groups={};
+  refs.forEach((r,i)=>{ const u=primaryURL(r); r._url=u; if(u){ (groups[u]=groups[u]||[]).push(i); } });
+  const dupInfos=[];
+  let dupSeq=0;
+  Object.keys(groups).forEach((u)=>{
+    const idxs=groups[u];
+    if(idxs.length<2) return;
+    dupSeq++;
+    const first=refs[idxs[0]];
+    const nm=(first.attrs.match(/name\s*=\s*["']([^"']+)["']/i)||[])[1] || ("refauto"+dupSeq);
+    const info={url:u, idxs:idxs, name:nm, firstHasName:!!((first.attrs.match(/name\s*=\s*["']([^"']+)["']/i)||[])[1])};
+    idxs.forEach(ix=>{ refs[ix]._dup=info; refs[ix]._dupFirst=(ix===idxs[0]); });
+    dupInfos.push(info);
+  });
+
+  refs.forEach((r,i)=>{
+    if(r._dup && !r._dupFirst) return; // later duplicates are handled by the group item
+    const c=classifyContent(r.content);
+    const needName = r._dup && r._dupFirst && !r._dup.firstHasName ? r._dup.name : null;
+
+    if(c.kind==="bare"||c.kind==="barebracket"){
+      const clean=c.url;
+      items.push(mkItem({kind:"fix", refIdx:i, tag:"Bare URL", tagClass:"t-bare",
+        desc:"Bare URL converted to a citation template.",
+        orig:r.content.trim().slice(0,160), titleURLs:[clean], mergedName:needName,
+        finalize(cache){
+          const t=cache[clean]||titleFromURL(clean);
+          const site=siteFromURL(clean);
+          const cite="{{cite web|url="+clean+"|title="+t+(site?"|website="+site:"")+"}}";
+          const repl=openTag(r,this.mergedName)+cite+"</ref>";
+          this.ranges=[{start:r.start,end:r.end,repl:repl}];
+          this.proposed=repl.slice(0,200);
+        }}));
+    }else if(c.kind==="urllabel"){
+      items.push(mkItem({kind:"fix", refIdx:i, tag:"URL with label", tagClass:"t-label",
+        desc:"[URL label] converted to a citation template using the label as the title.",
+        orig:r.content.trim().slice(0,160), titleURLs:[], mergedName:needName,
+        finalize(cache){
+          const site=siteFromURL(c.url);
+          const cite="{{cite web|url="+c.url+"|title="+c.label+(site?"|website="+site:"")+"}}";
+          const repl=openTag(r,this.mergedName)+cite+"</ref>";
+          this.ranges=[{start:r.start,end:r.end,repl:repl}];
+          this.proposed=repl.slice(0,200);
+        }}));
+    }else if(c.kind==="malformed"){
+      items.push(mkItem({kind:"fix", refIdx:i, tag:"Malformed ref", tagClass:"t-bare",
+        desc:"Parenthesized (URL text) converted to a proper citation template.",
+        orig:r.content.trim().slice(0,160), titleURLs:[], mergedName:needName,
+        finalize(cache){
+          const site=siteFromURL(c.url);
+          const cite="{{cite web|url="+c.url+"|title="+c.label+(site?"|website="+site:"")+"}}";
+          const repl=openTag(r,this.mergedName)+cite+"</ref>";
+          this.ranges=[{start:r.start,end:r.end,repl:repl}];
+          this.proposed=repl.slice(0,200);
+        }}));
+    }else if(c.kind==="cite"){
+      const u=citeNeedsTitle(r.content);
+      if(u){
+        items.push(mkItem({kind:"fix", refIdx:i, tag:"Missing title", tagClass:"t-title",
+          desc:"Citation template has no title. A title is added.",
+          orig:r.content.trim().slice(0,160), titleURLs:[u], mergedName:needName,
+          finalize(cache){
+            const t=cache[u]||titleFromURL(u);
+            const idx=r.content.lastIndexOf("}}");
+            if(idx<0){ this.ranges=[]; return; }
+            const before=r.content.slice(0,idx).replace(/\s+$/,"");
+            const newContent=before+"|title="+t+"\n"+r.content.slice(idx);
+            const repl=openTag(r,this.mergedName)+newContent+"</ref>";
+            this.ranges=[{start:r.start,end:r.end,repl:repl}];
+            this.proposed="... |title="+t.slice(0,80)+" ...";
+          }}));
+      }else if(needName){
+        items.push(mkItem({kind:"fix", refIdx:i, tag:"Shared name", tagClass:"t-dup",
+          desc:"Add a shared name so the duplicate refs can reuse it.",
+          orig:r.content.trim().slice(0,160), titleURLs:[], mergedName:needName,
+          finalize(cache){
+            const repl=openTag(r,this.mergedName);
+            this.ranges=[{start:r.start,end:r.start+r.openLen,repl:repl}];
+            this.proposed="(name added to the opening tag)";
+          }}));
+      }
+    }
+  });
+
+  // duplicate group items: later occurrences become named refs
+  dupInfos.forEach(info=>{
+    const laterIdxs=info.idxs.slice(1);
+    items.push(mkItem({kind:"dup", tag:"Duplicate URL", tagClass:"t-dup",
+      desc:'"'+info.url.slice(0,80)+(info.url.length>80?"...":"")+'" is used '+info.idxs.length+' times. Later uses become named refs.',
+      orig:info.url.slice(0,160), titleURLs:[], dupInfo:info,
+      finalize(cache){
+        this.ranges=laterIdxs.map(ix=>{ const rr=refs[ix]; return {start:rr.start,end:rr.end,repl:'<ref name="'+info.name+'" />'}; });
+        const firstItem=items.find(x=>x.kind==="fix"&&x.refIdx===info.idxs[0]);
+        const firstCovered=firstItem&&firstItem.checked&&firstItem.mergedName;
+        if(!info.firstHasName && !firstCovered){
+          const fr=refs[info.idxs[0]];
+          this.ranges.push({start:fr.start,end:fr.start+fr.openLen,repl:openTag(fr,info.name)});
+        }
+        this.proposed=laterIdxs.length+' ref(s) replaced with <ref name="'+info.name+'" />';
+      }}));
+  });
+
+  return items;
+}
+
+/* ---------- scan / render / apply ---------- */
+let state=null;
+
+async function scan(){
+  const title=$("title").value.trim();
+  if(!title) return;
+  const btn=$("scanBtn"), st=$("status"), out=$("out"), pbar=$("pbar"), pfill=$("pfill");
+  btn.disabled=true; out.innerHTML=""; st.textContent="Fetching article..."; pbar.style.display="none"; pfill.style.width="0";
+  state=null;
+  try{
+    const d=await api({action:"parse", page:title, prop:"wikitext", formatversion:"2"});
+    if(d.error){ st.textContent="Article not found."; btn.disabled=false; return; }
+    const wt=d.parse.wikitext;
+    const refs=findRefs(wt);
+    st.textContent="Found "+refs.length+" references. Analyzing...";
+    const items=buildItems(refs);
+    const needTitles=[];
+    items.forEach(it=>{ (it.titleURLs||[]).forEach(u=>{ if(needTitles.indexOf(u)<0) needTitles.push(u); }); });
+    const cache={};
+    if(needTitles.length){
+      pbar.style.display="block";
+      for(let i=0;i<needTitles.length;i++){
+        st.textContent="Fetching titles... "+(i+1)+" of "+needTitles.length;
+        pfill.style.width=Math.round(i/needTitles.length*100)+"%";
+        cache[needTitles[i]]=await fetchTitle(needTitles[i]);
+        await new Promise(r=>setTimeout(r,150));
+      }
+      pfill.style.width="100%";
+    }
+    items.forEach(it=>{ try{ it.finalize(cache); }catch(e){ it.ranges=[]; } });
+    state={ title:d.parse.title, wikitext:wt, items:items.filter(it=>it.ranges.length>0), refCount:refs.length, titleCache:cache };
+    pbar.style.display="none"; st.textContent="";
+    renderResults();
+  }catch(e){ st.textContent="Error: "+e.message; pbar.style.display="none"; }
+  btn.disabled=false;
+}
+
+function renderResults(){
+  const out=$("out");
+  const n=state.items.length;
+  if(!n){
+    out.innerHTML='<div class="card"><h2>No fixable issues found</h2><p class="note">Scanned '+state.refCount+' references. Everything already looks well-formed.</p></div>';
+    return;
+  }
+  let h='<div class="card"><h2>'+n+' issue'+(n>1?"s":"")+' found in '+state.refCount+' references</h2>'
+    +'<div class="row" style="margin:0 0 8px"><button class="ghost" onclick="toggleAll(true)">Select all</button>'
+    +'<button class="ghost" onclick="toggleAll(false)">Select none</button></div>';
+  state.items.forEach(it=>{
+    h+='<div class="issue"><input type="checkbox" data-id="'+it.id+'"'+(it.checked?" checked":"")+' onchange="toggleItem('+it.id+',this.checked)" />'
+      +'<div class="body"><span class="tag '+it.tagClass+'">'+esc(it.tag)+'</span>'
+      +'<div>'+esc(it.desc)+'</div>'
+      +'<code>'+esc(it.orig)+'</code>'
+      +'<div class="arrow">becomes</div>'
+      +'<code>'+esc(it.proposed||"(no change)")+'</code>'
+      +'</div></div>';
+  });
+  h+='<div class="row"><button id="applyBtn" onclick="applyFixes()">Apply Fixes</button></div></div><div id="applied"></div>';
+  out.innerHTML=h;
+}
+
+function toggleAll(v){ state.items.forEach(it=>{ it.checked=v; }); renderResults(); }
+function toggleItem(id,v){ const it=state.items.find(x=>x.id===id); if(it) it.checked=v; }
+
+function applyFixes(){
+  // Recompute ranges now so the current checkbox states are respected
+  // (e.g. a duplicate group must still name the first ref even if its own content fix was unchecked).
+  state.items.forEach(it=>{ try{ it.finalize(state.titleCache||{}); }catch(e){ it.ranges=[]; } });
+  const checked=state.items.filter(i=>i.checked&&i.ranges.length);
+  const ranges=[];
+  checked.forEach(it=>it.ranges.forEach(r=>ranges.push(r)));
+  ranges.sort((a,b)=>a.start-b.start);
+  const clean=[];
+  for(const r of ranges){
+    if(clean.length && r.start<clean[clean.length-1].end) continue;
+    clean.push(r);
+  }
+  let wt=state.wikitext;
+  for(let i=clean.length-1;i>=0;i--){ const r=clean[i]; wt=wt.slice(0,r.start)+r.repl+wt.slice(r.end); }
+  state.fixed=wt;
+  const n=checked.length;
+  $("applied").innerHTML='<div class="card"><h2>Fixed '+n+' issue'+(n===1?"":"s")+'</h2>'
+    +'<p class="note">Review the updated wikitext below. Copy it, paste it into the Bharatpedia editor, and publish.</p>'
+    +'<textarea id="fixedText" readonly>'+esc(wt)+'</textarea>'
+    +'<div class="row"><button onclick="copyFixed()">Copy to Clipboard</button>'
+    +'<button class="ghost" onclick="openEditor()">Open in Bharatpedia Editor</button></div>'
+    +'<div class="status" id="copyst"></div></div>';
+  $("applied").scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function copyFixed(){
+  const t=$("fixedText");
+  const done=()=>{ const e=$("copyst"); if(e){ e.textContent="Copied to clipboard."; setTimeout(()=>{e.textContent="";},2500); } };
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t.value).then(done).catch(()=>{ t.select(); try{document.execCommand("copy");}catch(e){} done(); }); }
+  else{ t.select(); try{document.execCommand("copy");}catch(e){} done(); }
+}
+
+function openEditor(){
+  window.open("https://en.bharatpedia.org/w/index.php?title="+encodeURIComponent(state.title.replace(/ /g,"_"))+"&action=edit","_blank");
+}
+
+$("title").addEventListener("keydown",e=>{ if(e.key==="Enter") scan(); });
+</script>
+</body>
+</html>
