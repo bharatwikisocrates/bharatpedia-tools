@@ -45,6 +45,13 @@
 		var guard = 0;
 		while ( i < n && guard < 100000 ) {
 			guard++;
+			// ==heading== (exclude entire line if it's a heading)
+			if ( text.substr( i, 2 ) === '==' ) {
+				var nl = text.indexOf( '\n', i );
+				unsafe.push( [ i, nl === -1 ? n : nl ] );
+				i = nl === -1 ? n : nl;
+				continue;
+			}
 			// <!-- comment -->
 			if ( text.substr( i, 4 ) === '<!--' ) {
 				var e = text.indexOf( '-->', i + 4 );
@@ -143,13 +150,19 @@
 				seen[ key ] = true;
 				var pluralS = '';
 				var term = phrase;
+				var display = phrase;
 				if ( /s$/i.test( term ) && term.length > 3 ) {
 					var sing = term.replace( /s$/i, '' );
-					if ( sing.length > 2 ) { pluralS = term.match( /s$/i )[0]; term = sing; key = term.toLowerCase(); }
+					if ( sing.length > 2 ) {
+						pluralS = 's';
+						term = sing;
+						display = sing; // Display the singular, s goes outside
+						key = term.toLowerCase();
+					}
 					if ( seen[ key ] ) continue;
 					seen[ key ] = true;
 				}
-				cands.push( { term: term, pluralS: pluralS, display: phrase, start: absStart, end: absEnd, words: words.length } );
+				cands.push( { term: term, pluralS: pluralS, display: display, start: absStart, end: absEnd, words: words.length } );
 			}
 		}
 		return cands;
