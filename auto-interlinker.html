@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Auto Interlinker - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --ok: #1e7a3c; --ok-soft: #e2f3e6; --warn: #9a6a00; --warn-soft: #fbf0cd; --danger: #b3261e; --danger-soft: #fbe7e5; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --ok: #5cc47c; --ok-soft: #1d3626; --warn: #e0b95c; --warn-soft: #3a3013; --danger: #f0837c; --danger-soft: #3d1f1d; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+input[type=text] { flex: 1 1 220px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+button.ghost { background: var(--surface-2); color: var(--ink); }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
+.card h2 { margin: 0 0 10px; font-size: 18px; }
+.linkrow { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.linkrow:first-of-type { border-top: none; }
+.linkrow input[type=checkbox] { margin-top: 4px; width: 18px; height: 18px; flex: none; }
+.linkrow .term { font-weight: 700; }
+.linkrow .ctx { font-size: 13px; color: var(--ink-soft); margin-top: 4px; }
+.linkrow .ctx mark { background: var(--warn-soft); color: var(--warn); border-radius: 3px; padding: 0 2px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+textarea { width: 100%; min-height: 260px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-family: ui-monospace, monospace; font-size: 13px; background: var(--surface); color: var(--ink); }
+.hint { font-size: 13px; color: var(--ink-soft); }
+.statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.stat { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.stat b { font-size: 22px; display: block; }
+.stat span { font-size: 13px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Auto Interlinker</h1>
+<p class="sub">Scans an article for terms that could be internal links, checks that the target pages exist, and lets you review each suggestion before applying.</p>
+<div class="controls">
+<input type="text" id="title" placeholder="Article title, e.g. Hacktivist Vanguard" />
+<button id="go" onclick="analyze()">Scan article</button>
+</div>
+<div class="status" id="status"></div>
+<div id="results"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const WIKI = "https://en.bharatpedia.org/wiki/";
+const MAX_CHECK = 200;
+const MAX_LINKS = 50;
+
+const STOP = new Set(("a,an,the,and,or,but,nor,of,in,on,at,to,for,with,by,from,as,is,was,were,are,be,been,being," +
+"has,have,had,do,does,did,will,would,can,could,shall,should,may,might,must,he,she,it,they,them,we,us,you,i," +
+"me,my,mine,his,her,hers,its,their,theirs,our,ours,your,yours,this,that,these,those,there,here,where,when," +
+"what,which,who,whom,whose,how,why,not,no,yes,so,such,than,then,too,very,just,also,well,however,although," +
+"though,because,since,until,while,during,between,among,through,over,under,above,below,into,out,off,up,down," +
+"about,against,after,before,per,via,etc,vs,mr,mrs,ms,dr,st,jr,sr," +
+"january,february,march,april,june,july,august,september,october,november,december," +
+"monday,tuesday,wednesday,thursday,friday,saturday,sunday,today,tomorrow,yesterday").split(","));
+
+const state = { title: "", normTitle: "", wikitext: "", accepted: [], applied: false };
+
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url);
+  return r.json();
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function setStatus(t) { document.getElementById("status").textContent = t; }
+function mwNorm(s) {
+  s = String(s || "").replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+// ---- find regions of wikitext that must not be linked inside ----
+function getSafeRanges(text) {
+  const skip = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    if (text.startsWith("<!--", i)) {
+      const j = text.indexOf("-->", i + 4);
+      const e = j === -1 ? n : j + 3;
+      skip.push([i, e]); i = e;
+    } else if (text.startsWith("[[", i)) {
+      let depth = 0, j = i;
+      while (j < n) {
+        if (text.startsWith("[[", j)) { depth++; j += 2; }
+        else if (text.startsWith("]]", j)) { depth--; j += 2; if (depth === 0) break; }
+        else j++;
+      }
+      skip.push([i, j]); i = j;
+    } else if (text.startsWith("{{", i)) {
+      let depth = 0, j = i;
+      while (j < n) {
+        if (text.startsWith("{{", j)) { depth++; j += 2; }
+        else if (text.startsWith("}}", j)) { depth--; j += 2; if (depth === 0) break; }
+        else j++;
+      }
+      skip.push([i, j]); i = j;
+    } else if (/^<ref[\s>\/]/i.test(text.slice(i, i + 6))) {
+      const gt = text.indexOf(">", i);
+      if (gt === -1) { skip.push([i, n]); i = n; }
+      else if (text[gt - 1] === "/") { skip.push([i, gt + 1]); i = gt + 1; }
+      else {
+        const close = text.toLowerCase().indexOf("</ref>", gt);
+        const e = close === -1 ? n : close + 6;
+        skip.push([i, e]); i = e;
+      }
+    } else if (/^<(references|gallery|poem|nowiki|pre|source|syntaxhighlight)[\s>\/]/i.test(text.slice(i, i + 22))) {
+      const m = text.slice(i).match(/^<([a-zA-Z]+)/);
+      const tag = m ? m[1].toLowerCase() : "ref";
+      const close = text.toLowerCase().indexOf("</" + tag + ">", i);
+      const e = close === -1 ? n : close + tag.length + 3;
+      skip.push([i, e]); i = e;
+    } else if (text[i] === "[") {
+      const j = text.indexOf("]", i + 1);
+      const e = j === -1 ? i + 1 : j + 1;
+      skip.push([i, e]); i = e;
+    } else if (/^https?:\/\//i.test(text.slice(i, i + 8))) {
+      let j = i;
+      while (j < n && !/\s/.test(text[j])) j++;
+      skip.push([i, j]); i = j;
+    } else {
+      i++;
+    }
+  }
+  skip.sort((a, b) => a[0] - b[0]);
+  const safe = [];
+  let pos = 0;
+  for (const s of skip) {
+    if (s[0] > pos) safe.push([pos, s[0]]);
+    if (s[1] > pos) pos = s[1];
+  }
+  if (pos < n) safe.push([pos, n]);
+  return safe;
+}
+
+function collectExistingLinks(text) {
+  const set = new Set();
+  const re = /\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    set.add(m[1].trim().toLowerCase().replace(/_/g, " "));
+    if (m[2] !== undefined) set.add(m[2].trim().toLowerCase().replace(/_/g, " "));
+  }
+  return set;
+}
+
+function stripPossessive(w) {
+  return w.replace(/'s$/i, "").replace(/'$/, "");
+}
+
+function extractCandidates(text, safeRanges) {
+  const cands = [];
+  const seen = new Set();
+  const wordRe = /[\p{L}][\p{L}\p{N}'\-]*/gu;
+  for (const rs of safeRanges) {
+    const seg = text.slice(rs[0], rs[1]);
+    const lines = seg.split("\n");
+    let abs = rs[0];
+    for (const line of lines) {
+      if (!/^\s*=+.*=+\s*$/.test(line)) {
+        const words = [];
+        let m;
+        wordRe.lastIndex = 0;
+        while ((m = wordRe.exec(line)) !== null) {
+          words.push({ w: m[0], start: abs + m.index, end: abs + m.index + m[0].length });
+        }
+        let i = 0;
+        while (i < words.length) {
+          if (/^\p{Lu}/u.test(words[i].w)) {
+            let j = i;
+            while (j < words.length && /^\p{Lu}/u.test(words[j].w)) j++;
+            const runLen = j - i;
+            for (let len = Math.min(4, runLen); len >= 1; len--) {
+              for (let s = i; s + len <= j; s++) {
+                const win = words.slice(s, s + len);
+                const lows = win.map(x => x.w.toLowerCase());
+                if (len === 1 && STOP.has(lows[0])) continue;
+                if (lows.every(w => STOP.has(w))) continue;
+                const parts = win.map((x, k) => k === win.length - 1 ? stripPossessive(x.w) : x.w);
+                const lookup = parts.join(" ");
+                if (lookup.length < 2) continue;
+                if (/^\d+$/.test(lookup.replace(/\s/g, ""))) continue;
+                const key = lookup.toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                cands.push({
+                  term: lookup,
+                  display: text.slice(win[0].start, win[win.length - 1].end),
+                  start: win[0].start,
+                  end: win[win.length - 1].end,
+                  words: len
+                });
+              }
+            }
+            i = j;
+          } else {
+            i++;
+          }
+        }
+      }
+      abs += line.length + 1;
+    }
+  }
+  return cands;
+}
+
+function greedyFilter(cands) {
+  const sorted = cands.slice().sort((a, b) => (b.words - a.words) || (a.start - b.start));
+  const taken = [];
+  const out = [];
+  for (const c of sorted) {
+    let overlap = false;
+    for (const t of taken) {
+      if (c.start < t[1] && t[0] < c.end) { overlap = true; break; }
+    }
+    if (!overlap) { taken.push([c.start, c.end]); out.push(c); }
+  }
+  return out;
+}
+
+async function resolveTitles(lookups, onProgress) {
+  const map = new Map();
+  for (let i = 0; i < lookups.length; i += 50) {
+    const batch = lookups.slice(i, i + 50);
+    if (onProgress) onProgress(Math.min(i + 50, lookups.length), lookups.length);
+    let d;
+    try {
+      d = await api({ action: "query", titles: batch.join("|"), prop: "info", redirects: 1 });
+    } catch (e) {
+      batch.forEach(t => map.set(mwNorm(t), { exists: false, final: null }));
+      continue;
+    }
+    const byTitle = {};
+    Object.values((d.query && d.query.pages) || {}).forEach(p => { byTitle[mwNorm(p.title)] = p; });
+    const redirs = {};
+    ((d.query && d.query.redirects) || []).forEach(r => { redirs[mwNorm(r.from)] = mwNorm(r.to); });
+    const norms = {};
+    ((d.query && d.query.normalized) || []).forEach(x => { norms[mwNorm(x.from)] = mwNorm(x.to); });
+    for (const t of batch) {
+      let nt = mwNorm(t);
+      if (norms[nt]) nt = norms[nt];
+      const seenR = new Set();
+      while (redirs[nt] && !seenR.has(nt)) { seenR.add(nt); nt = redirs[nt]; }
+      const p = byTitle[nt];
+      if (p && p.missing === undefined) map.set(mwNorm(t), { exists: true, final: p.title });
+      else map.set(mwNorm(t), { exists: false, final: null });
+    }
+    await sleep(200);
+  }
+  return map;
+}
+
+function makeLink(display, finalTitle) {
+  if (display.toLowerCase() === finalTitle.toLowerCase()) return "[[" + display + "]]";
+  return "[[" + finalTitle + "|" + display + "]]";
+}
+
+async function analyze() {
+  const btn = document.getElementById("go");
+  const res = document.getElementById("results");
+  let title = document.getElementById("title").value.trim();
+  if (!title) { setStatus("Enter an article title."); return; }
+  const wikiIdx = title.toLowerCase().indexOf("/wiki/");
+  if (wikiIdx !== -1) title = decodeURIComponent(title.slice(wikiIdx + 6)).replace(/_/g, " ");
+  btn.disabled = true; res.innerHTML = ""; state.applied = false;
+  try {
+    setStatus("Fetching article...");
+    const pd = await api({ action: "parse", page: title, prop: "wikitext" });
+    if (pd.error) throw new Error(pd.error.info || "Page not found.");
+    const wt = pd.parse.wikitext["*"];
+    const pageTitle = pd.parse.title;
+    state.title = pageTitle;
+    state.normTitle = mwNorm(pageTitle);
+    state.wikitext = wt;
+
+    setStatus("Scanning for linkable terms...");
+    await sleep(30);
+    const safe = getSafeRanges(wt);
+    const linked = collectExistingLinks(wt);
+    let cands = extractCandidates(wt, safe);
+
+    let alreadyLinked = 0;
+    const fresh = [];
+    for (const c of cands) {
+      if (linked.has(c.term.toLowerCase())) { alreadyLinked++; continue; }
+      if (mwNorm(c.term) === state.normTitle) continue;
+      fresh.push(c);
+    }
+
+    setStatus("Resolving overlaps, longest matches first...");
+    await sleep(30);
+    const filtered = greedyFilter(fresh).slice(0, MAX_CHECK);
+
+    const resolved = await resolveTitles(
+      filtered.map(c => c.term),
+      (done, total) => setStatus("Checking which articles exist... " + done + " of " + total)
+    );
+
+    const accepted = [];
+    for (const c of filtered) {
+      const r = resolved.get(mwNorm(c.term));
+      if (r && r.exists && mwNorm(r.final) !== state.normTitle) {
+        accepted.push({
+          term: c.term, display: c.display, start: c.start, end: c.end,
+          finalTitle: r.final, checked: true
+        });
+        if (accepted.length >= MAX_LINKS) break;
+      }
+    }
+    state.accepted = accepted;
+
+    setStatus("Found " + cands.length + " candidate terms, " + accepted.length + " valid new links.");
+    renderReview(res, { candidates: cands.length, alreadyLinked, accepted: accepted.length });
+  } catch (e) {
+    setStatus("Error: " + e.message);
+  }
+  btn.disabled = false;
+}
+
+function contextSnippet(c) {
+  const t = state.wikitext;
+  const a = Math.max(0, c.start - 45), b = Math.min(t.length, c.end + 45);
+  let s = (a > 0 ? "..." : "") + t.slice(a, c.start) + "[[CTX]]" + t.slice(c.end, b) + (b < t.length ? "..." : "");
+  s = s.replace(/\s+/g, " ");
+  const parts = s.split("[[CTX]]");
+  return esc(parts[0]) + "<mark>" + esc(c.display) + "</mark>" + esc(parts[1] || "");
+}
+
+function renderReview(res, stats) {
+  const a = state.accepted;
+  let html = '<div class="card"><h2>Review suggestions</h2>' +
+    '<div class="statgrid">' +
+    '<div class="stat"><b>' + stats.candidates + '</b><span>Candidate terms</span></div>' +
+    '<div class="stat"><b>' + a.length + '</b><span>New links proposed</span></div>' +
+    '<div class="stat"><b>' + stats.alreadyLinked + '</b><span>Already linked</span></div>' +
+    '</div>';
+  if (!a.length) {
+    html += '<p class="hint">No new linkable terms found. The article may already be well linked.</p></div>';
+    res.innerHTML = html;
+    return;
+  }
+  html += '<div class="toolbar">' +
+    '<button class="ghost" onclick="toggleAll(true)">Select all</button>' +
+    '<button class="ghost" onclick="toggleAll(false)">Select none</button>' +
+    '<button onclick="applyLinks()">Apply Links</button></div>';
+  html += a.map((c, i) =>
+    '<div class="linkrow"><input type="checkbox" data-i="' + i + '"' + (c.checked ? " checked" : "") +
+    ' onchange="state.accepted[' + i + '].checked=this.checked" />' +
+    '<div><span class="term">' + esc(c.display) + '</span> &rarr; <a href="' + WIKI + encodeURIComponent(c.finalTitle.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(c.finalTitle) + '</a>' +
+    '<div class="ctx">' + contextSnippet(c) + '</div></div></div>'
+  ).join("");
+  html += '</div><div id="output"></div>';
+  res.innerHTML = html;
+}
+
+function toggleAll(v) {
+  state.accepted.forEach(c => { c.checked = v; });
+  document.querySelectorAll(".linkrow input[type=checkbox]").forEach(cb => { cb.checked = v; });
+}
+
+function applyLinks() {
+  const chosen = state.accepted.filter(c => c.checked).sort((x, y) => y.start - x.start);
+  let wt = state.wikitext;
+  for (const c of chosen) {
+    wt = wt.slice(0, c.start) + makeLink(c.display, c.finalTitle) + wt.slice(c.end);
+  }
+  state.applied = true;
+  const out = document.getElementById("output");
+  const editUrl = "https://en.bharatpedia.org/w/index.php?title=" + encodeURIComponent(state.title.replace(/ /g, "_")) + "&action=edit";
+  out.innerHTML = '<div class="card"><h2>Done: ' + chosen.length + ' links added</h2>' +
+    '<p class="hint">Copy the wikitext below, open the editor, paste it over the article text, preview, then publish. Or open the editor directly:</p>' +
+    '<div class="toolbar"><button onclick="copyText()">Copy wikitext</button>' +
+    '<a href="' + editUrl + '" target="_blank" rel="noopener"><button>Open in Bharatpedia Editor</button></a></div>' +
+    '<textarea id="outtext">' + esc(wt) + '</textarea></div>';
+  setStatus(chosen.length + " links applied. Review the wikitext above before publishing.");
+  out.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function copyText() {
+  const ta = document.getElementById("outtext");
+  ta.select();
+  try { document.execCommand("copy"); } catch (e) {}
+  if (navigator.clipboard) navigator.clipboard.writeText(ta.value).catch(function () {});
+  setStatus("Wikitext copied to clipboard.");
+}
+
+document.getElementById("title").addEventListener("keydown", function (e) { if (e.key === "Enter") analyze(); });
+</script>
+</body>
+</html>
