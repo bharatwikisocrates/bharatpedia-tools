@@ -33,6 +33,7 @@ button.ghost{ background:var(--surface-2); color:var(--ink); border:1px solid va
 .t-label{ background:var(--warn-soft); color:var(--warn); }
 .t-dup{ background:var(--info-soft); color:var(--info); }
 .t-title{ background:var(--ok-soft); color:var(--ok); }
+.t-dead{ background:var(--danger-soft); color:var(--danger); }
 .issue code{ display:block; background:var(--surface-2); border-radius:6px; padding:8px 10px; margin:6px 0; word-break:break-all; font-size:13px; white-space:pre-wrap; }
 .arrow{ color:var(--ink-faint); font-size:12px; }
 textarea{ width:100%; min-height:260px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font-family:ui-monospace,monospace; font-size:13px; }
@@ -46,7 +47,7 @@ textarea{ width:100%; min-height:260px; padding:12px; border:1px solid var(--lin
 <div class="wrap">
 <a class="back" href="index.html">&larr; All tools</a>
 <h1>Reference Fixer</h1>
-<p class="sub">Scan an article for broken reference styles and fix them in one go. Review each fix, then publish.</p>
+<p class="sub">Scan an article for broken reference styles and dead links, and fix them in one go. Review each fix, then publish.</p>
 <div class="controls">
 <input type="text" id="title" placeholder="Article title" />
 <button id="scanBtn" onclick="scan()">Scan References</button>
@@ -122,6 +123,125 @@ async function fetchTitle(u){
   return null;
 }
 
+/* ---------- dead-link probing ---------- */
+// Tier 1: direct HEAD probe (no-cors). A network failure or timeout means dead.
+// Note: an opaque success hides the real HTTP status, so Tier 2 verifies it
+// through a CORS-friendly relay. Plain http:// URLs skip Tier 1 because browsers
+// block them as mixed content from an https page; the relay checks them instead.
+async function probeURL(u){
+  if(!/^http:\/\//i.test(u)){
+    try{
+      const c1=new AbortController(); const t1=setTimeout(()=>c1.abort(),8000);
+      await fetch(u,{method:"HEAD",mode:"no-cors",signal:c1.signal,redirect:"follow"});
+      clearTimeout(t1);
+    }catch(e){
+      return {dead:true, note:(e&&e.name==="AbortError")?"timed out":"unreachable"};
+    }
+  }
+  // Tier 2: real HTTP status via relay (best effort, one retry).
+  const code=await relayStatus(u);
+  if(code!==null){
+    if(code>=400) return {dead:true, note:"HTTP "+code};
+    return {dead:false, note:"HTTP "+code};
+  }
+  // Tier 3: relay failed — use the latest archived capture's status as a hint.
+  const cdx=await cdxLastStatus(u);
+  if(cdx&&cdx>=400) return {dead:true, note:"last archived copy: HTTP "+cdx};
+  return {dead:false, note:"unverified", unverified:true};
+}
+
+// Returns the origin server's HTTP status code, or null if it could not be determined.
+async function relayStatus(u){
+  for(let a=0;a<2;a++){
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),12000);
+      const r=await fetch("https://api.allorigins.win/get?url="+encodeURIComponent(u),{signal:c.signal});
+      clearTimeout(t);
+      if(r.ok){
+        const j=await r.json();
+        const code=j&&j.status&&j.status.http_code;
+        if(typeof code==="number"&&code>0) return code;
+      }
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,1500));
+  }
+  return null;
+}
+
+// Status code of the most recent Wayback capture of the URL, or null.
+async function cdxLastStatus(u){
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),10000);
+    const r=await fetch("https://web.archive.org/cdx/search/cdx?url="+encodeURIComponent(u)+"&output=json&fl=timestamp,statuscode&limit=-1",{signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok) return null;
+    const j=await r.json();
+    if(!Array.isArray(j)||j.length<2) return null;
+    const code=parseInt(j[j.length-1][1],10);
+    return isNaN(code)?null:code;
+  }catch(e){ return null; }
+}
+
+async function waybackSnapshot(u){
+  try{
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),9000);
+    const r=await fetch("https://archive.org/wayback/available?url="+encodeURIComponent(u),{signal:c.signal});
+    clearTimeout(t);
+    if(!r.ok) return null;
+    const j=await r.json();
+    const s=j&&j.archived_snapshots&&j.archived_snapshots.closest;
+    if(s&&s.available&&s.url){
+      const ts=String(s.timestamp||"");
+      const date=ts.length>=8?ts.slice(0,4)+"-"+ts.slice(4,6)+"-"+ts.slice(6,8):"";
+      return {url:String(s.url).replace(/^http:/,"https:"), date:date};
+    }
+  }catch(e){}
+  return null;
+}
+
+// "|url-status=dead" plus archive params for a dead link, skipping params the template already has.
+function deadParams(dead, content){
+  if(!dead) return "";
+  content=content||"";
+  let p="";
+  if(!/\|\s*url-status\s*=/i.test(content)) p+="|url-status=dead";
+  if(dead.snap&&dead.snap.url&&!/\|\s*archive-url\s*=/i.test(content))
+    p+="|archive-url="+dead.snap.url+(dead.snap.date?"|archive-date="+dead.snap.date:"");
+  return p;
+}
+
+// Merge dead-link findings into the built items: refs that already have a fix
+// item get the dead marking folded into their citation; well-formed citation
+// templates get a standalone "Dead link" item.
+function attachDeadInfo(refs, items, deadMap){
+  refs.forEach((r,i)=>{
+    const u=r._url, dm=u&&deadMap[u];
+    if(!dm||!dm.dead) return;
+    const note="The link appears dead ("+dm.note+")"+(dm.snap?"; an archived copy is added.":".");
+    const ex=items.find(x=>x.kind==="fix"&&x.refIdx===i&&x.tag!=="Shared name");
+    if(ex){
+      ex.dead=dm;
+      ex.tag="Dead link"; ex.tagClass="t-dead";
+      ex.desc=ex.desc+" "+note;
+      return;
+    }
+    if(!/{{\s*cite[\s_]/i.test(r.content.trim())) return;
+    if(/\|\s*url-status\s*=/i.test(r.content)) return;
+    items.push(mkItem({kind:"fix", refIdx:i, tag:"Dead link", tagClass:"t-dead",
+      desc:"The linked page appears dead ("+dm.note+"). "+(dm.snap?"It is marked dead and an archived copy is added.":"It is marked dead; no archived copy was found."),
+      orig:r.content.trim().slice(0,160), titleURLs:[], dead:dm,
+      finalize(cache){
+        const idx=r.content.lastIndexOf("}}");
+        if(idx<0){ this.ranges=[]; return; }
+        const ins=deadParams(this.dead, r.content);
+        if(!ins){ this.ranges=[]; return; }
+        const pos=r.start+r.openLen+idx;
+        this.ranges=[{start:pos,end:pos,repl:ins+"\n"}];
+        this.proposed="(insert "+ins.slice(0,90)+" before the closing braces)";
+      }}));
+  });
+}
+
 /* ---------- classification ---------- */
 function classifyContent(content){
   const t=content.trim(); let m;
@@ -175,7 +295,7 @@ function buildItems(refs){
         finalize(cache){
           const t=cache[clean]||titleFromURL(clean);
           const site=siteFromURL(clean);
-          const cite="{{cite web|url="+clean+"|title="+t+(site?"|website="+site:"")+"}}";
+          const cite="{{cite web|url="+clean+"|title="+t+(site?"|website="+site:"")+deadParams(this.dead)+"}}";
           const repl=openTag(r,this.mergedName)+cite+"</ref>";
           this.ranges=[{start:r.start,end:r.end,repl:repl}];
           this.proposed=repl.slice(0,200);
@@ -186,7 +306,7 @@ function buildItems(refs){
         orig:r.content.trim().slice(0,160), titleURLs:[], mergedName:needName,
         finalize(cache){
           const site=siteFromURL(c.url);
-          const cite="{{cite web|url="+c.url+"|title="+c.label+(site?"|website="+site:"")+"}}";
+          const cite="{{cite web|url="+c.url+"|title="+c.label+(site?"|website="+site:"")+deadParams(this.dead)+"}}";
           const repl=openTag(r,this.mergedName)+cite+"</ref>";
           this.ranges=[{start:r.start,end:r.end,repl:repl}];
           this.proposed=repl.slice(0,200);
@@ -197,7 +317,7 @@ function buildItems(refs){
         orig:r.content.trim().slice(0,160), titleURLs:[], mergedName:needName,
         finalize(cache){
           const site=siteFromURL(c.url);
-          const cite="{{cite web|url="+c.url+"|title="+c.label+(site?"|website="+site:"")+"}}";
+          const cite="{{cite web|url="+c.url+"|title="+c.label+(site?"|website="+site:"")+deadParams(this.dead)+"}}";
           const repl=openTag(r,this.mergedName)+cite+"</ref>";
           this.ranges=[{start:r.start,end:r.end,repl:repl}];
           this.proposed=repl.slice(0,200);
@@ -213,7 +333,7 @@ function buildItems(refs){
             const idx=r.content.lastIndexOf("}}");
             if(idx<0){ this.ranges=[]; return; }
             const before=r.content.slice(0,idx).replace(/\s+$/,"");
-            const newContent=before+"|title="+t+"\n"+r.content.slice(idx);
+            const newContent=before+"|title="+t+deadParams(this.dead,r.content)+"\n"+r.content.slice(idx);
             const repl=openTag(r,this.mergedName)+newContent+"</ref>";
             this.ranges=[{start:r.start,end:r.end,repl:repl}];
             this.proposed="... |title="+t.slice(0,80)+" ...";
@@ -281,6 +401,32 @@ async function scan(){
       }
       pfill.style.width="100%";
     }
+    // dead-link check: probe each unique external URL, then find archived copies for dead ones
+    const urlSet={};
+    refs.forEach(r=>{ if(r._url && !/bharatpedia\.org/i.test(r._url)) urlSet[r._url]=1; });
+    const probeUrls=Object.keys(urlSet);
+    const deadMap={};
+    if(probeUrls.length){
+      pbar.style.display="block";
+      const B=3; let done=0;
+      for(let b=0;b<probeUrls.length;b+=B){
+        const batch=probeUrls.slice(b,b+B);
+        st.textContent="Checking links... "+Math.min(b+B,probeUrls.length)+" of "+probeUrls.length;
+        const rs=await Promise.all(batch.map(u=>probeURL(u)));
+        batch.forEach((u,k)=>{ deadMap[u]=rs[k]; done++; });
+        pfill.style.width=Math.round(done/probeUrls.length*80)+"%";
+        await new Promise(r=>setTimeout(r,200));
+      }
+      const deadUrls=probeUrls.filter(u=>deadMap[u].dead);
+      for(let b=0;b<deadUrls.length;b+=B){
+        const batch=deadUrls.slice(b,b+B);
+        st.textContent="Looking for archived copies... "+Math.min(b+B,deadUrls.length)+" of "+deadUrls.length;
+        const ss=await Promise.all(batch.map(u=>waybackSnapshot(u)));
+        batch.forEach((u,k)=>{ if(ss[k]) deadMap[u].snap=ss[k]; });
+      }
+      pfill.style.width="100%";
+    }
+    attachDeadInfo(refs, items, deadMap);
     items.forEach(it=>{ try{ it.finalize(cache); }catch(e){ it.ranges=[]; } });
     state={ title:d.parse.title, wikitext:wt, items:items.filter(it=>it.ranges.length>0), refCount:refs.length, titleCache:cache };
     pbar.style.display="none"; st.textContent="";
