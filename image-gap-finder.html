@@ -64,16 +64,29 @@ async function find() {
     if (!members.length) { st.textContent = "No articles found in this category."; btn.disabled = false; return; }
     st.textContent = "Checking images for " + members.length + " articles...";
     const gaps = [];
-    for (let i = 0; i < members.length; i += 20) {
-      const batch = members.slice(i, i + 20);
-      const d = await api({ action: "query", prop: "pageimages|info", pageids: batch.map(m => m.pageid).join("|"), pithumbsize: 100, inprop: "" });
-      const pages = d.query.pages || {};
-      for (const pid in pages) {
-        const pg = pages[pid];
-        // pageimage exists if the page has a suitable lead image (non-SVG)
-        if (!pg.pageimage) gaps.push({ title: pg.title, size: pg.length });
+    // Check pages one by one - batch prop=images queries return wrong results (API quirk)
+    for (let i = 0; i < members.length; i++) {
+      const m = members[i];
+      try {
+        const d = await api({ action: "query", prop: "images", titles: m.title, imlimit: 1, format: "json" });
+        const pages = d.query.pages || {};
+        let hasImage = false;
+        for (const pid in pages) {
+          const pg = pages[pid];
+          const imgs = (pg.images || []).filter(im => !/\.svg$/i.test(im.title));
+          if (imgs.length > 0) { hasImage = true; break; }
+        }
+        // Also get page size
+        const infoD = await api({ action: "query", prop: "info", titles: m.title, inprop: "" });
+        let size = 0;
+        for (const pid2 in (infoD.query.pages || {})) { size = infoD.query.pages[pid2].length || 0; }
+        if (!hasImage) gaps.push({ title: m.title, size: size });
+      } catch (e) { /* skip on error */ }
+      if ((i + 1) % 5 === 0 || i === members.length - 1) {
+        st.textContent = "Checked " + (i + 1) + " / " + members.length + ". Gaps so far: " + gaps.length;
       }
-      st.textContent = "Checked " + Math.min(i + 20, members.length) + " / " + members.length + ". Gaps so far: " + gaps.length;
+      // Rate limit: 40 req/10sec - be gentle
+      if ((i + 1) % 10 === 0) await new Promise(r => setTimeout(r, 500));
     }
     gaps.sort((a, b) => b.size - a.size);
     st.textContent = gaps.length + " of " + members.length + " articles have no images.";
