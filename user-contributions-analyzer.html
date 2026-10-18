@@ -89,13 +89,13 @@ async function analyze() {
     st.textContent = "Fetching contributions...";
     let uccontinue = null; const contribs = [];
     do {
-      const p = { action: "query", list: "usercontribs", ucuser: user, ucprop: "title|timestamp|sizediff|comment|flags", uclimit: 200, ucdir: "older" };
+      const p = { action: "query", list: "usercontribs", ucuser: user, ucprop: "title|timestamp|sizediff|comment|flags|tags", uclimit: 500, ucdir: "older" };
       if (uccontinue) p.uccontinue = uccontinue;
       const d = await api(p);
       (d.query.usercontribs || []).forEach(c => contribs.push(c));
       uccontinue = d.continue && d.continue.uccontinue;
       st.textContent = "Fetched " + contribs.length + " edits...";
-    } while (uccontinue && contribs.length < 500);
+    } while (uccontinue && contribs.length < 5000);
     const nsCount = {}, pageCount = {}, monthCount = {}, hourCount = {};
     let newPages = 0, drafts = 0, talkEdits = 0, undoCount = 0, revertCount = 0, minorCount = 0, summaryCount = 0;
     let bytesAdded = 0, bytesRemoved = 0;
@@ -113,7 +113,9 @@ async function analyze() {
       if (sd > 0) bytesAdded += sd; else bytesRemoved += Math.abs(sd);
       const cm = (c.comment || "").toLowerCase();
       if (cm.includes("undo")) undoCount++;
-      if (cm.includes("revert") || cm.includes("rv ")) revertCount++;
+      if (cm.includes("revert") || cm.includes("rv ") || cm.includes("twinkle")) revertCount++;
+      const tags = c.tags || [];
+      if (tags.includes("mw-undo") || tags.includes("mw-rollback") || tags.includes("mw-manual-revert")) revertCount++;
       const dt = new Date(c.timestamp);
       if (!isNaN(dt)) {
         const key = dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0");
