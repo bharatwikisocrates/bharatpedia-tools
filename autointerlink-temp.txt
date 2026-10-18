@@ -1,0 +1,560 @@
+/* =====================================================================
+ * Bharatpedia Gadget: AutoInterlink (v1.0)
+ * Auto interlinker tool page (Bharatpedia:Auto interlinker).
+ *
+ * Enter an article title: the tool scans the wikitext for unlinked
+ * terms that exist as Bharatpedia articles, shows a review list with
+ * checkboxes, and publishes the chosen links as the logged-in user
+ * when they click "Publish changes". "Discard" clears the results.
+ *
+ * All user-facing text is in English.
+ * ===================================================================== */
+( function () {
+	'use strict';
+
+	var TOOL_PAGE = 'Bharatpedia:Auto interlinker';
+	var MAX_CHECK = 200;
+	var MAX_LINKS = 50;
+
+	var STOP = ( 'a,an,the,and,or,but,nor,of,in,on,at,to,for,with,by,from,as,is,was,were,are,be,been,being,' +
+		'has,have,had,do,does,did,will,would,can,could,shall,should,may,might,must,he,she,it,they,them,we,us,you,i,' +
+		'me,my,mine,his,her,hers,its,their,theirs,our,ours,your,yours,this,that,these,those,there,here,where,when,' +
+		'what,which,who,whom,whose,how,why,not,no,yes,so,such,than,then,too,very,just,also,well,however,although,' +
+		'though,because,since,until,while,during,between,among,through,over,under,above,below,into,out,off,up,down,' +
+		'about,against,after,before,per,via,etc,vs,mr,mrs,ms,dr,st,jr,sr,' +
+		'january,february,march,april,june,july,august,september,october,november,december,' +
+		'monday,tuesday,wednesday,thursday,friday,saturday,sunday,today,tomorrow,yesterday' ).split( ',' );
+
+	function esc( s ) {
+		return String( s == null ? '' : s ).replace( /[&<>"']/g, function ( c ) {
+			return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ c ];
+		} );
+	}
+
+	function mwNorm( s ) {
+		s = String( s || '' ).replace( /_/g, ' ' ).replace( /\s+/g, ' ' ).trim();
+		return s ? s.charAt( 0 ).toUpperCase() + s.slice( 1 ) : s;
+	}
+
+	// Regions of wikitext that must never get links inserted inside them.
+	function getSafeRanges( text ) {
+		var skip = [], n = text.length, i = 0, j, e, m, tag, close, gt;
+		while ( i < n ) {
+			if ( text.indexOf( '<!--', i ) === i ) {
+				j = text.indexOf( '-->', i + 4 );
+				e = j === -1 ? n : j + 3;
+				skip.push( [ i, e ] ); i = e;
+			} else if ( text.indexOf( '[[', i ) === i ) {
+				var depth = 0; j = i;
+				while ( j < n ) {
+					if ( text.indexOf( '[[', j ) === j ) { depth++; j += 2; }
+					else if ( text.indexOf( ']]', j ) === j ) { depth--; j += 2; if ( depth === 0 ) break; }
+					else j++;
+				}
+				skip.push( [ i, j ] ); i = j;
+			} else if ( text.indexOf( '{{', i ) === i ) {
+				var d2 = 0; j = i;
+				while ( j < n ) {
+					if ( text.indexOf( '{{', j ) === j ) { d2++; j += 2; }
+					else if ( text.indexOf( '}}', j ) === j ) { d2--; j += 2; if ( d2 === 0 ) break; }
+					else j++;
+				}
+				skip.push( [ i, j ] ); i = j;
+			} else if ( /^<ref[\s>\/]/i.test( text.slice( i, i + 6 ) ) ) {
+				gt = text.indexOf( '>', i );
+				if ( gt === -1 ) { skip.push( [ i, n ] ); i = n; }
+				else if ( text[ gt - 1 ] === '/' ) { skip.push( [ i, gt + 1 ] ); i = gt + 1; }
+				else {
+					close = text.toLowerCase().indexOf( '</ref>', gt );
+					e = close === -1 ? n : close + 6;
+					skip.push( [ i, e ] ); i = e;
+				}
+			} else if ( /^<(references|gallery|poem|nowiki|pre|source|syntaxhighlight)[\s>\/]/i.test( text.slice( i, i + 22 ) ) ) {
+				m = text.slice( i ).match( /^<([a-zA-Z]+)/ );
+				tag = m ? m[ 1 ].toLowerCase() : 'ref';
+				close = text.toLowerCase().indexOf( '</' + tag + '>', i );
+				e = close === -1 ? n : close + tag.length + 3;
+				skip.push( [ i, e ] ); i = e;
+			} else if ( text[ i ] === '[' ) {
+				j = text.indexOf( ']', i + 1 );
+				e = j === -1 ? i + 1 : j + 1;
+				skip.push( [ i, e ] ); i = e;
+			} else if ( /^https?:\/\//i.test( text.slice( i, i + 8 ) ) ) {
+				j = i;
+				while ( j < n && !/\s/.test( text[ j ] ) ) j++;
+				skip.push( [ i, j ] ); i = j;
+			} else {
+				i++;
+			}
+		}
+		skip.sort( function ( a, b ) { return a[ 0 ] - b[ 0 ]; } );
+		var safe = [], pos = 0, s;
+		for ( var k = 0; k < skip.length; k++ ) {
+			s = skip[ k ];
+			if ( s[ 0 ] > pos ) safe.push( [ pos, s[ 0 ] ] );
+			if ( s[ 1 ] > pos ) pos = s[ 1 ];
+		}
+		if ( pos < n ) safe.push( [ pos, n ] );
+		return safe;
+	}
+
+	function collectExistingLinks( text ) {
+		var set = {}, re = /\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, m;
+		while ( ( m = re.exec( text ) ) !== null ) {
+			set[ m[ 1 ].trim().toLowerCase().replace( /_/g, ' ' ) ] = true;
+			if ( m[ 2 ] !== undefined ) set[ m[ 2 ].trim().toLowerCase().replace( /_/g, ' ' ) ] = true;
+		}
+		return set;
+	}
+
+	function stripPossessive( w ) {
+		return w.replace( /'s$/i, '' ).replace( /'$/, '' );
+	}
+
+	function extractCandidates( text, safeRanges ) {
+		var cands = [], seen = {};
+		var wordRe = /[\p{L}][\p{L}\p{N}'-]*/gu;
+		var r, rs, seg, lines, li, line, abs, words, m, i, j, runLen, len, s, win, lows, parts, lookup, key;
+		for ( r = 0; r < safeRanges.length; r++ ) {
+			rs = safeRanges[ r ];
+			seg = text.slice( rs[ 0 ], rs[ 1 ] );
+			lines = seg.split( '\n' );
+			abs = rs[ 0 ];
+			for ( li = 0; li < lines.length; li++ ) {
+				line = lines[ li ];
+				if ( !/^\s*=+.*=+\s*$/.test( line ) ) {
+					words = [];
+					wordRe.lastIndex = 0;
+					while ( ( m = wordRe.exec( line ) ) !== null ) {
+						words.push( { w: m[ 0 ], start: abs + m.index, end: abs + m.index + m[ 0 ].length } );
+					}
+					i = 0;
+					while ( i < words.length ) {
+						if ( /^\p{Lu}/u.test( words[ i ].w ) || /^[a-z]/.test( words[ i ].w ) ) {
+							j = i;
+							while ( j < words.length && ( /^\p{Lu}/u.test( words[ j ].w ) || /^[a-z]/.test( words[ j ].w ) ) ) {
+								// break the run at sentence boundaries so phrases do
+								// not bleed across full stops, e.g. "Movement. Gandhi"
+								if ( j > i && /[.!?;:]/.test( text.slice( words[ j - 1 ].end, words[ j ].start ) ) ) {
+									break;
+								}
+								j++;
+							}
+							runLen = j - i;
+							for ( len = Math.min( 4, runLen ); len >= 1; len-- ) {
+								for ( s = i; s + len <= j; s++ ) {
+									win = words.slice( s, s + len );
+									lows = win.map( function ( x ) { return x.w.toLowerCase(); } );
+									if ( len === 1 && STOP.indexOf( lows[ 0 ] ) !== -1 ) continue;
+									if ( lows.every( function ( w ) { return STOP.indexOf( w ) !== -1; } ) ) continue;
+									parts = win.map( function ( x, k ) { return k === win.length - 1 ? stripPossessive( x.w ) : x.w; } );
+									lookup = parts.join( ' ' );
+									if ( lookup.length < 2 ) continue;
+									if ( /^\d+$/.test( lookup.replace( /\s/g, '' ) ) ) continue;
+									lookup = lookup.charAt( 0 ).toUpperCase() + lookup.slice( 1 );
+									pluralS = '';
+									if ( /s$/i.test( lookup ) && lookup.length > 3 ) {
+										singular = lookup.replace( /s$/i, '' );
+										if ( singular.length > 2 ) {
+											pluralS = lookup.match( /s$/i )[ 0 ];
+											lookup = singular;
+										}
+									}
+									key = lookup.toLowerCase();
+									if ( seen[ key ] ) continue;
+									seen[ key ] = true;
+									cands.push( {
+										term: lookup,
+										pluralS: pluralS,
+										display: text.slice( win[ 0 ].start, win[ win.length - 1 ].end ),
+										start: win[ 0 ].start,
+										end: win[ win.length - 1 ].end,
+										words: len
+									} );
+								}
+							}
+							i = j;
+						} else {
+							i++;
+						}
+					}
+				}
+				abs += line.length + 1;
+			}
+		}
+		return cands;
+	}
+
+	function greedyFilter( cands ) {
+		var sorted = cands.slice().sort( function ( a, b ) { return ( b.words - a.words ) || ( a.start - b.start ); } );
+		var taken = [], out = [], c, t, overlap, k;
+		for ( var x = 0; x < sorted.length; x++ ) {
+			c = sorted[ x ];
+			overlap = false;
+			for ( k = 0; k < taken.length; k++ ) {
+				t = taken[ k ];
+				if ( c.start < t[ 1 ] && t[ 0 ] < c.end ) { overlap = true; break; }
+			}
+			if ( !overlap ) { taken.push( [ c.start, c.end ] ); out.push( c ); }
+		}
+		return out;
+	}
+
+	function makeLink( display, finalTitle, pluralS ) {
+		pluralS = pluralS || '';
+		if ( display.toLowerCase() === finalTitle.toLowerCase() ) return '[[' + display + ']]' + pluralS;
+		return '[[' + finalTitle + '|' + display + ']]' + pluralS;
+	}
+
+	function contextSnippet( text, c ) {
+		var s = Math.max( 0, c.start - 60 ), e = Math.min( text.length, c.end + 60 );
+		var before = text.slice( s, c.start ), mid = text.slice( c.start, c.end ), after = text.slice( c.end, e );
+		before = before.replace( /\s+/g, ' ' );
+		after = after.replace( /\s+/g, ' ' );
+		return ( s > 0 ? '…' : '' ) + before + '[[' + mid + ']]' + after + ( e < text.length ? '…' : '' );
+	}
+
+	function buildTool() {
+		var api = new mw.Api();
+
+		var $root = $( '<div>' ).addClass( 'bp-ail' ).css( {
+			border: '2px solid #36c', 'border-radius': '10px', padding: '18px',
+			margin: '0 0 18px 0', background: '#f8f9fa', 'box-sizing': 'border-box'
+		} );
+
+		$root.append( $( '<h2>' ).text( 'Auto interlinker' )
+			.css( { margin: '0 0 4px 0', 'font-size': '22px' } ) );
+		$root.append( $( '<p>' )
+			.text( 'Enter an article title. The tool finds terms that exist as Bharatpedia articles, lets you review each suggestion, and publishes the chosen links.' )
+			.css( { margin: '0 0 12px 0', 'font-size': '13px', color: '#54595d' } ) );
+
+		var $row = $( '<div>' ).css( { display: 'flex', gap: '8px', 'margin-bottom': '12px' } );
+		var $titleInput = $( '<input>' ).attr( { type: 'text', placeholder: 'Article title (e.g. Hacktivist Vanguard)' } ).css( {
+			flex: '1', padding: '10px 12px', 'font-size': '15px',
+			border: '2px solid #36c', 'border-radius': '6px', 'box-sizing': 'border-box'
+		} );
+		var $scanBtn = $( '<button>' ).text( 'Scan' ).css( {
+			padding: '10px 24px', 'font-size': '15px', cursor: 'pointer',
+			background: '#36c', color: '#fff', border: 'none', 'border-radius': '6px', 'font-weight': 'bold'
+		} );
+		$row.append( $titleInput, $scanBtn );
+		$root.append( $row );
+
+		var $msg = $( '<div>' ).css( { 'font-size': '13px', color: '#d33', 'margin-bottom': '8px' } ).hide();
+		$root.append( $msg );
+		var $status = $( '<div>' ).css( { 'font-size': '13px', color: '#54595d', 'margin-bottom': '8px' } ).hide();
+		$root.append( $status );
+
+		var $results = $( '<div>' ).hide();
+		$root.append( $results );
+
+		var state = {
+			title: '', wikitext: '', timestamp: '', items: []
+		};
+
+		function showMsg( t ) { $msg.text( t ).show(); }
+		function showStatus( t ) { $status.text( t ).show(); }
+		function setScanBtn( busy ) {
+			$scanBtn.prop( 'disabled', busy ).text( busy ? 'Scanning…' : 'Scan' );
+		}
+
+		function resolveTitles( lookups, onProgress ) {
+			var map = {};
+			var batches = [];
+			for ( var i = 0; i < lookups.length; i += 50 ) {
+				batches.push( lookups.slice( i, i + 50 ) );
+			}
+			var chain = $.Deferred().resolve().promise();
+			batches.forEach( function ( batch, bi ) {
+				chain = chain.then( function () {
+					if ( onProgress ) onProgress( Math.min( ( bi + 1 ) * 50, lookups.length ), lookups.length );
+					return api.get( {
+						action: 'query', titles: batch.join( '|' ), prop: 'info', redirects: 1
+					} ).then( function ( d ) {
+						var byTitle = {}, p, id;
+						var pages = ( d.query && d.query.pages ) || {};
+						for ( id in pages ) {
+							p = pages[ id ];
+							byTitle[ mwNorm( p.title ) ] = p;
+						}
+						var redirs = {};
+						( ( d.query && d.query.redirects ) || [] ).forEach( function ( r ) {
+							redirs[ mwNorm( r.from ) ] = mwNorm( r.to );
+						} );
+						var norms = {};
+						( ( d.query && d.query.normalized ) || [] ).forEach( function ( x ) {
+							norms[ mwNorm( x.from ) ] = mwNorm( x.to );
+						} );
+						batch.forEach( function ( t ) {
+							var nt = mwNorm( t );
+							if ( norms[ nt ] ) nt = norms[ nt ];
+							var seenR = {}, guard = 0;
+							while ( redirs[ nt ] && !seenR[ nt ] && guard < 10 ) { seenR[ nt ] = true; nt = redirs[ nt ]; guard++; }
+							var pg = byTitle[ nt ];
+							if ( pg && pg.missing === undefined ) {
+								map[ mwNorm( t ) ] = { exists: true, final: pg.title };
+							} else {
+								map[ mwNorm( t ) ] = { exists: false, final: null };
+							}
+						} );
+					}, function () {
+						batch.forEach( function ( t ) {
+							map[ mwNorm( t ) ] = { exists: false, final: null };
+						} );
+					} );
+				} ).then( function () {
+					var d = $.Deferred();
+					setTimeout( d.resolve, 200 );
+					return d.promise();
+				} );
+			} );
+			return chain.then( function () { return map; } );
+		}
+
+		function scan() {
+			var title = $.trim( $titleInput.val() );
+			$msg.hide(); $results.hide().empty();
+			if ( !title ) {
+				showMsg( 'Please enter an article title.' );
+				return;
+			}
+			setScanBtn( true );
+			showStatus( 'Fetching article…' );
+			api.get( {
+				action: 'query', prop: 'revisions', titles: title,
+				rvprop: 'content|timestamp', rvslots: 'main', formatversion: 2
+			} ).then( function ( d ) {
+				var pages = d.query.pages;
+				var page = pages[ 0 ];
+				if ( page.missing ) {
+					throw new Error( 'Article not found: ' + title );
+				}
+				state.title = page.title;
+				state.wikitext = page.revisions[ 0 ].slots.main.content;
+				state.timestamp = page.revisions[ 0 ].timestamp;
+				state.normTitle = mwNorm( page.title ).toLowerCase().replace( / /g, '_' );
+
+				showStatus( 'Extracting candidate terms…' );
+				var safeRanges = getSafeRanges( state.wikitext );
+				var existing = collectExistingLinks( state.wikitext );
+				var cands = greedyFilter( extractCandidates( state.wikitext, safeRanges ) );
+				cands = cands.filter( function ( c ) {
+					return !existing[ c.term.toLowerCase() ] && !existing[ c.display.toLowerCase() ];
+				} );
+				if ( !cands.length ) {
+					showStatus( 'No linkable terms found in ' + state.title + '.' );
+					return;
+				}
+				var toCheck = cands.slice( 0, MAX_CHECK );
+				showStatus( 'Checking ' + toCheck.length + ' term(s)…' );
+				return resolveTitles(
+					toCheck.map( function ( c ) { return c.term; } ),
+					function ( done, total ) { showStatus( 'Checking terms… (' + done + '/' + total + ')' ); }
+				).then( function ( map ) {
+					var items = [];
+					toCheck.forEach( function ( c ) {
+						var info = map[ mwNorm( c.term ) ];
+						if ( !info || !info.exists ) return;
+						if ( mwNorm( info.final ).toLowerCase().replace( / /g, '_' ) === state.normTitle ) return;
+						items.push( {
+							cand: c, finalTitle: info.final,
+							link: makeLink( c.display, info.final, c.pluralS ),
+							checked: null
+						} );
+						if ( items.length >= MAX_LINKS ) return;
+					} );
+					state.items = items;
+					if ( !items.length ) {
+						showStatus( 'No new links to suggest for ' + state.title + '.' );
+						return;
+					}
+					renderResults();
+				} );
+			} ).catch( function ( err ) {
+				showMsg( ( err && err.message ) || 'Something went wrong.' );
+				$status.hide();
+			} ).always( function () {
+				setScanBtn( false );
+			} );
+		}
+
+		function renderResults() {
+			$status.hide();
+			var items = state.items;
+
+			var $head = $( '<p>' ).html(
+				'Found <b>' + items.length + '</b> suggested link(s) in <b>' +
+				esc( state.title ) + '</b>. Review and publish, or discard.'
+			).css( { 'font-size': '14px' } );
+			$results.append( $head );
+
+			var $togRow = $( '<div>' ).css( { 'margin-bottom': '8px', 'font-size': '13px' } );
+			var $selAll = $( '<button>' ).text( 'Select all' ).css( btnSmallCss() );
+			var $selNone = $( '<button>' ).text( 'Select none' ).css( btnSmallCss() );
+			$selAll.on( 'click', function () { toggleAll( true ); } );
+			$selNone.on( 'click', function () { toggleAll( false ); } );
+			$togRow.append( $selAll, ' ', $selNone );
+			$results.append( $togRow );
+
+			var $list = $( '<div>' ).css( {
+				'max-height': '340px', overflow: 'auto', border: '1px solid #c8ccd1',
+				'border-radius': '6px', background: '#fff', padding: '8px', 'margin-bottom': '12px'
+			} );
+			items.forEach( function ( it ) {
+				var $item = $( '<div>' ).css( {
+					display: 'flex', gap: '8px', 'align-items': 'flex-start',
+					padding: '8px', 'border-bottom': '1px solid #eaecf0', 'font-size': '13px'
+				} );
+				var $cb = $( '<input>' ).attr( { type: 'checkbox', checked: true } )
+					.css( { 'margin-top': '3px' } );
+				it.checked = $cb;
+				var $txt = $( '<div>' ).css( { flex: '1' } );
+				var $termLine = $( '<div>' );
+				$termLine.append( $( '<b>' ).text( it.cand.display ) );
+				$termLine.append( document.createTextNode( ' → ' ) );
+				$termLine.append( $( '<a>' )
+					.attr( { href: mw.util.getUrl( it.finalTitle ), target: '_blank', rel: 'noopener' } )
+					.text( it.finalTitle ) );
+				$txt.append( $termLine );
+				var ctx = contextSnippet( state.wikitext, it.cand );
+				var $ctx = $( '<div>' ).css( { color: '#72777d', 'font-size': '12px', 'margin-top': '2px' } );
+				$ctx.append( document.createTextNode( ctx.replace( /\[\[/g, '' ).replace( /\]\]/g, '' ) ) );
+				$txt.append( $ctx );
+				$item.append( $cb, $txt );
+				$list.append( $item );
+			} );
+			$results.append( $list );
+
+			var $btnRow = $( '<div>' ).css( { display: 'flex', gap: '8px', 'align-items': 'center' } );
+			var $pubBtn = $( '<button>' ).text( 'Publish' ).css( {
+				padding: '10px 24px', 'font-size': '15px', cursor: 'pointer',
+				background: '#14866d', color: '#fff', border: 'none',
+				'border-radius': '6px', 'font-weight': 'bold'
+			} );
+			$pubBtn.on( 'click', publish );
+			var $discardBtn = $( '<button>' ).text( 'Discard' ).css( {
+				padding: '10px 24px', 'font-size': '15px', cursor: 'pointer',
+				background: '#72777d', color: '#fff', border: 'none',
+				'border-radius': '6px', 'font-weight': 'bold'
+			} );
+			$discardBtn.on( 'click', function () {
+				state.items = [];
+				$results.hide().empty();
+				showStatus( 'Discarded. Enter an article title to scan again.' );
+			} );
+			$btnRow.append( $pubBtn, $discardBtn );
+			$results.append( $btnRow );
+			$results.append( $( '<p>' ).text( 'The edit will be saved under your own account. Please review the list above first.' )
+				.css( { 'font-size': '12px', color: '#54595d', 'margin-top': '8px' } ) );
+
+			$results.show();
+		}
+
+		function btnSmallCss() {
+			return {
+				padding: '4px 12px', 'font-size': '12px', cursor: 'pointer',
+				background: '#eaecf0', color: '#202122', border: '1px solid #c8ccd1',
+				'border-radius': '4px'
+			};
+		}
+
+		function toggleAll( v ) {
+			state.items.forEach( function ( it ) {
+				if ( it.checked ) it.checked.prop( 'checked', v );
+			} );
+		}
+
+		function publish() {
+			if ( mw.config.get( 'wgUserName' ) === null ) {
+				showMsg( 'Please log in to publish changes.' );
+				return;
+			}
+			var chosen = state.items.filter( function ( it ) { return it.checked && it.checked.is( ':checked' ); } );
+			if ( !chosen.length ) {
+				showMsg( 'No links selected.' );
+				return;
+			}
+			// Build replacements from end to start so offsets stay valid
+			var reps = chosen.map( function ( it ) {
+				return { start: it.cand.start, end: it.cand.end, text: it.link };
+			} );
+			reps.sort( function ( a, b ) { return b.start - a.start; } );
+			var text = state.wikitext;
+			reps.forEach( function ( r ) {
+				text = text.slice( 0, r.start ) + r.text + text.slice( r.end );
+			} );
+
+			showStatus( 'Publishing…' );
+			api.postWithToken( 'csrf', {
+				action: 'edit',
+				title: state.title,
+				text: text,
+				basetimestamp: state.timestamp,
+				summary: 'Add internal wikilinks via Auto interlinker tool',
+				assert: 'user'
+			} ).then( function ( d ) {
+				var rev = d.edit && d.edit.newrevid;
+				$results.empty().append(
+					$( '<p>' ).html(
+						'<b>Published!</b> ' + reps.length + ' link(s) added to <b>' +
+						esc( state.title ) + '</b>.' +
+						( rev ? ' <a href="' + mw.util.getUrl( 'Special:Diff/' + rev ) + '">View changes</a>' : '' )
+					).css( { 'font-size': '14px', color: '#14866d' } )
+				);
+				$status.hide();
+			} ).fail( function ( code, err ) {
+				$status.hide();
+				showMsg( 'Publish failed: ' + ( err && err.message ? err.message : code ) );
+			} );
+		}
+
+		$scanBtn.on( 'click', scan );
+		$titleInput.on( 'keydown', function ( e ) { if ( e.key === 'Enter' ) scan(); } );
+
+		return $root;
+	}
+
+	function init() {
+		try {
+			var pageName = mw.config.get( 'wgPageName' );
+			if ( pageName !== TOOL_PAGE && pageName.indexOf( TOOL_PAGE + '/' ) !== 0 ) {
+				return;
+			}
+			var $mount = $( '#autointerlink-root' );
+			if ( !$mount.length ) {
+				return;
+			}
+			var $tool = buildTool();
+			$mount.replaceWith( $tool );
+		} catch ( e ) {
+			if ( window.console && console.error ) {
+				console.error( 'AutoInterlink init failed: ' + ( e && e.message ) );
+			}
+		}
+	}
+
+	function waitForDeps( callback, attempts ) {
+		attempts = attempts || 0;
+		try {
+			if ( typeof $ !== 'undefined' && typeof mw !== 'undefined' &&
+				mw.Api && mw.util && document.getElementById( 'autointerlink-root' ) ) {
+				callback();
+				return;
+			}
+		} catch ( e ) {}
+		if ( attempts < 100 ) {
+			setTimeout( function () { waitForDeps( callback, attempts + 1 ); }, 100 );
+		} else {
+			try { callback(); } catch ( e ) {}
+		}
+	}
+	waitForDeps( function () {
+		try {
+			if ( document.readyState === 'loading' ) {
+				document.addEventListener( 'DOMContentLoaded', init );
+			} else {
+				init();
+			}
+		} catch ( e ) {}
+	} );
+}() );
