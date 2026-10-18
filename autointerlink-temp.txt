@@ -38,10 +38,63 @@
 
 	// Regions of wikitext that must never get links inserted inside them.
 	function getSafeRanges( text ) {
-		// Simplified: return whole text as safe (skip complex parsing to avoid hangs)
-		// TODO: Add proper safe-zone filtering later
+		// Returns [start,end) ranges of text SAFE for linking (excludes [[links]], <ref>, {{templates}})
 		if ( !text ) return [];
-		return [ [ 0, text.length ] ];
+		var n = text.length, i = 0;
+		var unsafe = []; // [start,end) ranges to EXCLUDE
+		var guard = 0;
+		while ( i < n && guard < 100000 ) {
+			guard++;
+			// <!-- comment -->
+			if ( text.substr( i, 4 ) === '<!--' ) {
+				var e = text.indexOf( '-->', i + 4 );
+				unsafe.push( [ i, e === -1 ? n : e + 3 ] );
+				i = e === -1 ? n : e + 3;
+				continue;
+			}
+			// [[link]]
+			if ( text.substr( i, 2 ) === '[[' ) {
+				var j = text.indexOf( ']]', i + 2 );
+				unsafe.push( [ i, j === -1 ? n : j + 2 ] );
+				i = j === -1 ? n : j + 2;
+				continue;
+			}
+			// {{template}} with nesting
+			if ( text.substr( i, 2 ) === '{{' ) {
+				var depth = 1, k = i + 2;
+				var g2 = 0;
+				while ( k < n && depth > 0 && g2 < 50000 ) {
+					g2++;
+					if ( text.substr( k, 2 ) === '{{' ) { depth++; k += 2; }
+					else if ( text.substr( k, 2 ) === '}}' ) { depth--; k += 2; }
+					else k++;
+				}
+				unsafe.push( [ i, k ] );
+				i = k;
+				continue;
+			}
+			// <ref>...</ref> or <ref .../>
+			if ( text.substr( i, 4 ).toLowerCase() === '<ref' ) {
+				var gt = text.indexOf( '>', i + 4 );
+				if ( gt === -1 ) { unsafe.push( [ i, n ] ); i = n; continue; }
+				var tag = text.slice( i, gt + 1 );
+				if ( tag.slice( -2 ) === '/>' ) { unsafe.push( [ i, gt + 1 ] ); i = gt + 1; continue; }
+				var ce = text.toLowerCase().indexOf( '</ref>', gt + 1 );
+				unsafe.push( [ i, ce === -1 ? n : ce + 6 ] );
+				i = ce === -1 ? n : ce + 6;
+				continue;
+			}
+			i++;
+		}
+		// Build safe ranges = complement of unsafe
+		unsafe.sort( function ( a, b ) { return a[0] - b[0]; } );
+		var safe = [], pos = 0, u;
+		for ( u = 0; u < unsafe.length; u++ ) {
+			if ( unsafe[u][0] > pos ) safe.push( [ pos, unsafe[u][0] ] );
+			if ( unsafe[u][1] > pos ) pos = unsafe[u][1];
+		}
+		if ( pos < n ) safe.push( [ pos, n ] );
+		return safe;
 	}
 
 	function collectExistingLinks( text ) {
