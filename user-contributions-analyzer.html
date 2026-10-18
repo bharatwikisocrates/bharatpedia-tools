@@ -21,6 +21,14 @@ input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px so
 button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
 button:disabled { opacity: .5; }
 .status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 6px; }
+.tab { padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink-soft); font-size: 14px; font-weight: 600; cursor: pointer; }
+.tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tabhint { font-size: 12px; color: var(--ink-faint); margin: 0 0 12px; }
+.tabload { text-align: center; padding: 44px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.tabload p { color: var(--ink-soft); font-size: 14px; margin: 0 0 14px; }
+.spinner { width: 36px; height: 36px; border: 4px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
 .card h2 { margin: 0 0 12px; font-size: 18px; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 6px; }
@@ -31,7 +39,7 @@ button:disabled { opacity: .5; }
 .nsbar .lbl { width: 140px; flex-shrink: 0; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nsbar .track { flex: 1; height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
 .nsbar .fill { height: 100%; background: var(--accent); border-radius: 5px; }
-.nsbar .n { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
+.nsbar .n { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
 .b-blocked { background: var(--danger-soft); color: var(--danger); }
 .b-clean { background: var(--ok-soft); color: var(--ok); }
@@ -50,16 +58,158 @@ th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
 <button id="go" onclick="analyze()">Analyze</button>
 </div>
 <div class="status" id="status"></div>
-<div id="out"></div>
+<div class="tabs" id="tabs" hidden>
+<button class="tab active" data-tab="overview" onclick="showTab('overview')">Overview</button>
+<button class="tab" data-tab="patterns" onclick="showTab('patterns')">Edit Patterns</button>
+<button class="tab" data-tab="quality" onclick="showTab('quality')">Quality</button>
+<button class="tab" data-tab="warnings" onclick="showTab('warnings')">Warnings</button>
+<button class="tab" data-tab="blocks" onclick="showTab('blocks')">Blocks</button>
+<button class="tab" data-tab="pages" onclick="showTab('pages')">Pages</button>
+</div>
+<p class="tabhint" id="tabhint" hidden>Each tab fetches its data only when opened. Large histories may take a while.</p>
+<div id="tab-overview" class="tabpanel"></div>
+<div id="tab-patterns" class="tabpanel" hidden></div>
+<div id="tab-quality" class="tabpanel" hidden></div>
+<div id="tab-warnings" class="tabpanel" hidden></div>
+<div id="tab-blocks" class="tabpanel" hidden></div>
+<div id="tab-pages" class="tabpanel" hidden></div>
 </div>
 <script>
 const API = "https://en.bharatpedia.org/w/api.php";
 const NS_NAMES = { 0: "Main", 1: "Talk", 2: "User", 3: "User talk", 4: "Bharatpedia", 5: "Bharatpedia talk", 6: "File", 7: "File talk", 10: "Template", 11: "Template talk", 14: "Category", 15: "Category talk", 118: "Draft", 119: "Draft talk" };
+const TABS = ["overview", "patterns", "quality", "warnings", "blocks", "pages"];
+const TAB_LABELS = { overview: "Overview", patterns: "Edit Patterns", quality: "Quality", warnings: "Warnings", blocks: "Blocks", pages: "Pages" };
+const MAX_EDITS = 50000;
+const state = { user: null, info: null, contribs: [], uccontinue: null, contribsDone: false, truncated: false, stats: null, loadedTabs: {} };
 async function api(params) {
   const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
   const r = await fetch(url); return r.json();
 }
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+function showTab(name) {
+  TABS.forEach(t => {
+    const btn = document.querySelector('.tab[data-tab="' + t + '"]');
+    if (btn) btn.classList.toggle("active", t === name);
+    document.getElementById("tab-" + t).hidden = (t !== name);
+  });
+}
+function loadBox(name, desc) {
+  return '<div class="tabload"><p>' + esc(desc) + '</p><button onclick="loadTab(\'' + name + '\')">Load ' + esc(TAB_LABELS[name].toLowerCase()) + '</button></div>';
+}
+function resetTabs() {
+  document.getElementById("tab-patterns").innerHTML = loadBox("patterns", "Namespace activity, top edited pages, monthly graph and active hours are loaded on demand.");
+  document.getElementById("tab-quality").innerHTML = loadBox("quality", "Edit summary usage, bytes added/removed, reverts and edit streaks are loaded on demand.");
+  document.getElementById("tab-warnings").innerHTML = loadBox("warnings", "Warnings posted on the user's talk page are loaded on demand.");
+  document.getElementById("tab-blocks").innerHTML = loadBox("blocks", "The user's block history is loaded on demand.");
+  document.getElementById("tab-pages").innerHTML = loadBox("pages", "Created pages, survival rate and top categories are loaded on demand.");
+  state.loadedTabs = {};
+}
+function setLoadMsg(name, text) {
+  const m = document.getElementById("loadmsg-" + name);
+  if (m) m.textContent = text;
+}
+async function loadTab(name) {
+  if (state.loadedTabs[name] || !state.user) return;
+  state.loadedTabs[name] = true;
+  const el = document.getElementById("tab-" + name);
+  el.innerHTML = '<div class="tabload"><div class="spinner"></div><p id="loadmsg-' + name + '">Fetching data, please wait...</p></div>';
+  try {
+    if (name === "patterns") await renderPatterns(el);
+    else if (name === "quality") await renderQuality(el);
+    else if (name === "warnings") await renderWarnings(el);
+    else if (name === "blocks") await renderBlocks(el);
+    else if (name === "pages") await renderPages(el);
+  } catch (e) {
+    state.loadedTabs[name] = false;
+    el.innerHTML = '<div class="tabload"><p>Error: ' + esc(e.message) + '</p><button onclick="loadTab(\'' + name + '\')">Retry</button></div>';
+  }
+}
+async function fetchContribs(target, onProgress) {
+  while (state.contribs.length < target && !state.contribsDone) {
+    const p = { action: "query", list: "usercontribs", ucuser: state.user, ucprop: "title|timestamp|sizediff|comment|flags|tags", uclimit: 500, ucdir: "older" };
+    if (state.uccontinue) p.uccontinue = state.uccontinue;
+    const d = await api(p);
+    (d.query.usercontribs || []).forEach(c => state.contribs.push(c));
+    state.uccontinue = (d.continue && d.continue.uccontinue) || null;
+    if (onProgress) onProgress(state.contribs.length);
+    if (!state.uccontinue) { state.contribsDone = true; break; }
+    if (state.contribs.length >= target) { state.truncated = true; break; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+function computeStats() {
+  if (state.stats) return state.stats;
+  const contribs = state.contribs;
+  const nsCount = {}, pageCount = {}, monthCount = {}, hourCount = {};
+  let newPages = 0, drafts = 0, talkEdits = 0, undoCount = 0, revertCount = 0, minorCount = 0, summaryCount = 0;
+  let bytesAdded = 0, bytesRemoved = 0;
+  const createdPages = [];
+  const dateSet = new Set();
+  contribs.forEach(c => {
+    nsCount[c.ns] = (nsCount[c.ns] || 0) + 1;
+    pageCount[c.title] = (pageCount[c.title] || 0) + 1;
+    if (c.new !== undefined) { newPages++; createdPages.push(c); }
+    if (c.ns === 118) drafts++;
+    if (c.ns % 2 === 1 && c.ns > 0) talkEdits++;
+    if (c.minor !== undefined) minorCount++;
+    if ((c.comment || "").trim()) summaryCount++;
+    const sd = typeof c.sizediff === "number" ? c.sizediff : 0;
+    if (sd > 0) bytesAdded += sd; else bytesRemoved += Math.abs(sd);
+    const cm = (c.comment || "").toLowerCase();
+    if (cm.includes("undo")) undoCount++;
+    if (cm.includes("revert") || cm.includes("rv ") || cm.includes("twinkle")) revertCount++;
+    const tags = c.tags || [];
+    if (tags.includes("mw-undo") || tags.includes("mw-rollback") || tags.includes("mw-manual-revert")) revertCount++;
+    const dt = new Date(c.timestamp);
+    if (!isNaN(dt)) {
+      const key = dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0");
+      monthCount[key] = (monthCount[key] || 0) + 1;
+      hourCount[dt.getUTCHours()] = (hourCount[dt.getUTCHours()] || 0) + 1;
+      dateSet.add(dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0") + "-" + String(dt.getUTCDate()).padStart(2, "0"));
+    }
+  });
+  let longestStreak = 0, currentStreak = 0;
+  if (dateSet.size) {
+    const days = [...dateSet].sort();
+    let run = 1;
+    for (let i = 1; i < days.length; i++) {
+      const prev = new Date(days[i - 1] + "T00:00:00Z").getTime();
+      const cur = new Date(days[i] + "T00:00:00Z").getTime();
+      if (cur - prev === 86400000) { run++; } else { longestStreak = Math.max(longestStreak, run); run = 1; }
+    }
+    longestStreak = Math.max(longestStreak, run);
+    const today = new Date();
+    const key = d => d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0") + "-" + String(d.getUTCDate()).padStart(2, "0");
+    const todayKey = key(today);
+    const yestKey = key(new Date(today.getTime() - 86400000));
+    if (dateSet.has(todayKey) || dateSet.has(yestKey)) {
+      let cursor = dateSet.has(todayKey) ? todayKey : yestKey;
+      while (dateSet.has(cursor)) {
+        currentStreak++;
+        const nd = new Date(new Date(cursor + "T00:00:00Z").getTime() - 86400000);
+        cursor = key(nd);
+      }
+    }
+  }
+  state.stats = { nsCount, pageCount, monthCount, hourCount, newPages, drafts, talkEdits, undoCount, revertCount, minorCount, summaryCount, bytesAdded, bytesRemoved, createdPages };
+  state.stats.longestStreak = longestStreak;
+  state.stats.currentStreak = currentStreak;
+  return state.stats;
+}
+function last12Months() {
+  const keys = [];
+  const now = new Date();
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    keys.push(d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"));
+  }
+  return keys;
+}
+function truncNote() {
+  return state.truncated ? '<div class="card"><p style="font-size:13px;color:var(--ink-soft);margin:0">Note: this user has more than ' + MAX_EDITS.toLocaleString() + ' edits. Showing analysis of the most recent ' + MAX_EDITS.toLocaleString() + ' edits.</p></div>' : '';
+}
 function findWarnings(wikitext, revs) {
   const out = [];
   if (wikitext) {
@@ -80,201 +230,191 @@ function findWarnings(wikitext, revs) {
 async function analyze() {
   const user = document.getElementById("user").value.trim();
   if (!user) return;
-  const btn = document.getElementById("go"), st = document.getElementById("status"), out = document.getElementById("out");
-  btn.disabled = true; out.innerHTML = ""; st.textContent = "Fetching user info...";
+  const btn = document.getElementById("go"), st = document.getElementById("status");
+  btn.disabled = true;
+  state.user = null; state.info = null; state.contribs = []; state.uccontinue = null;
+  state.contribsDone = false; state.truncated = false; state.stats = null;
+  document.getElementById("tab-overview").innerHTML = "";
+  document.getElementById("tabs").hidden = true;
+  document.getElementById("tabhint").hidden = true;
+  st.textContent = "Fetching user info...";
   try {
     const u = await api({ action: "query", list: "users", ususers: user, usprop: "editcount|registration|blockinfo|groups" });
     const info = (u.query.users || [])[0];
     if (!info || info.missing !== undefined) { st.textContent = "User not found."; btn.disabled = false; return; }
-    st.textContent = "Fetching contributions...";
-    let uccontinue = null; const contribs = [];
-    do {
-      const p = { action: "query", list: "usercontribs", ucuser: user, ucprop: "title|timestamp|sizediff|comment|flags|tags", uclimit: 500, ucdir: "older" };
-      if (uccontinue) p.uccontinue = uccontinue;
-      const d = await api(p);
-      (d.query.usercontribs || []).forEach(c => contribs.push(c));
-      uccontinue = d.continue && d.continue.uccontinue;
-      st.textContent = "Fetched " + contribs.length + " edits...";
-    } while (uccontinue && contribs.length < 5000);
-    const nsCount = {}, pageCount = {}, monthCount = {}, hourCount = {};
-    let newPages = 0, drafts = 0, talkEdits = 0, undoCount = 0, revertCount = 0, minorCount = 0, summaryCount = 0;
-    let bytesAdded = 0, bytesRemoved = 0;
-    const createdPages = [];
-    const dateSet = new Set();
-    contribs.forEach(c => {
-      nsCount[c.ns] = (nsCount[c.ns] || 0) + 1;
-      pageCount[c.title] = (pageCount[c.title] || 0) + 1;
-      if (c.new !== undefined) { newPages++; createdPages.push(c); }
-      if (c.ns === 118) drafts++;
-      if (c.ns % 2 === 1 && c.ns > 0) talkEdits++;
-      if (c.minor !== undefined) minorCount++;
-      if ((c.comment || "").trim()) summaryCount++;
-      const sd = typeof c.sizediff === "number" ? c.sizediff : 0;
-      if (sd > 0) bytesAdded += sd; else bytesRemoved += Math.abs(sd);
-      const cm = (c.comment || "").toLowerCase();
-      if (cm.includes("undo")) undoCount++;
-      if (cm.includes("revert") || cm.includes("rv ") || cm.includes("twinkle")) revertCount++;
-      const tags = c.tags || [];
-      if (tags.includes("mw-undo") || tags.includes("mw-rollback") || tags.includes("mw-manual-revert")) revertCount++;
-      const dt = new Date(c.timestamp);
-      if (!isNaN(dt)) {
-        const key = dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0");
-        monthCount[key] = (monthCount[key] || 0) + 1;
-        hourCount[dt.getUTCHours()] = (hourCount[dt.getUTCHours()] || 0) + 1;
-        dateSet.add(dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0") + "-" + String(dt.getUTCDate()).padStart(2, "0"));
-      }
-    });
-    const summaryPct = contribs.length ? Math.round(summaryCount / contribs.length * 100) : 0;
-    const netBytes = bytesAdded - bytesRemoved;
-    let longestStreak = 0, currentStreak = 0;
-    if (dateSet.size) {
-      const days = [...dateSet].sort();
-      let run = 1;
-      for (let i = 1; i < days.length; i++) {
-        const prev = new Date(days[i - 1] + "T00:00:00Z").getTime();
-        const cur = new Date(days[i] + "T00:00:00Z").getTime();
-        if (cur - prev === 86400000) { run++; } else { longestStreak = Math.max(longestStreak, run); run = 1; }
-      }
-      longestStreak = Math.max(longestStreak, run);
-      const today = new Date();
-      const todayKey = today.getUTCFullYear() + "-" + String(today.getUTCMonth() + 1).padStart(2, "0") + "-" + String(today.getUTCDate()).padStart(2, "0");
-      const yest = new Date(today.getTime() - 86400000);
-      const yestKey = yest.getUTCFullYear() + "-" + String(yest.getUTCMonth() + 1).padStart(2, "0") + "-" + String(yest.getUTCDate()).padStart(2, "0");
-      if (dateSet.has(todayKey) || dateSet.has(yestKey)) {
-        let cursor = dateSet.has(todayKey) ? todayKey : yestKey;
-        while (dateSet.has(cursor)) {
-          currentStreak++;
-          const d = new Date(cursor + "T00:00:00Z").getTime() - 86400000;
-          const nd = new Date(d);
-          cursor = nd.getUTCFullYear() + "-" + String(nd.getUTCMonth() + 1).padStart(2, "0") + "-" + String(nd.getUTCDate()).padStart(2, "0");
-        }
-      }
-    }
-    const maxHour = Math.max(1, ...Object.values(hourCount));
-    const monthKeys = [];
-    const now = new Date();
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-      monthKeys.push(d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"));
-    }
-    const maxMonth = Math.max(1, ...monthKeys.map(k => monthCount[k] || 0));
-    st.textContent = "Checking talk page for warnings...";
-    const talkTitle = "User talk:" + user.replace(/ /g, "_");
-    let talkText = null, talkRevs = [];
-    try {
-      const pt = await api({ action: "parse", page: talkTitle, prop: "wikitext" });
-      if (pt.parse && pt.parse.wikitext) talkText = pt.parse.wikitext["*"];
-    } catch (e) { talkText = null; }
-    try {
-      const rt = await api({ action: "query", prop: "revisions", titles: talkTitle, rvprop: "timestamp|user|comment", rvlimit: 30, rvdir: "older" });
-      const pages = (rt.query && rt.query.pages) || {};
-      const pg = pages[Object.keys(pages)[0]];
-      if (pg && pg.revisions && pg.missing === undefined) talkRevs = pg.revisions;
-    } catch (e) { talkRevs = []; }
-    const warnings = findWarnings(talkText, talkRevs);
-    st.textContent = "Checking block history...";
-    let blockLog = [];
-    try {
-      const bl = await api({ action: "query", list: "logevents", letype: "block", letitle: "User:" + user.replace(/ /g, "_"), lelimit: 20, leprop: "timestamp|user|comment|details" });
-      blockLog = (bl.query && bl.query.logevents) || [];
-    } catch (e) { blockLog = []; }
-    st.textContent = "Checking created pages...";
-    let survived = 0, checkedPages = 0;
-    try {
-      const uniqTitles = [...new Set(createdPages.map(c => c.title))];
-      for (let i = 0; i < uniqTitles.length; i += 50) {
-        const batch = uniqTitles.slice(i, i + 50);
-        const q = await api({ action: "query", titles: batch.join("|"), prop: "info" });
-        const pages = (q.query && q.query.pages) || {};
-        Object.keys(pages).forEach(id => {
-          checkedPages++;
-          if (pages[id].missing === undefined) survived++;
-        });
-      }
-    } catch (e) { checkedPages = 0; survived = 0; }
-    const survivalPct = checkedPages ? Math.round(survived / checkedPages * 100) : 0;
-    st.textContent = "Checking top categories...";
-    const catCount = {};
-    try {
-      const topTitles = Object.entries(pageCount).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([t]) => t);
-      for (let i = 0; i < topTitles.length; i += 20) {
-        const batch = topTitles.slice(i, i + 20);
-        const q = await api({ action: "query", titles: batch.join("|"), prop: "categories", cllimit: 50 });
-        const pages = (q.query && q.query.pages) || {};
-        Object.keys(pages).forEach(id => {
-          (pages[id].categories || []).forEach(cat => {
-            const name = (cat.title || "").replace(/^Category:/, "");
-            if (name && !/wikipedia|articles|pages|cs1|all articles/i.test(name)) catCount[name] = (catCount[name] || 0) + 1;
-          });
-        });
-      }
-    } catch (e) { /* categories unavailable */ }
-    const topCats = Object.entries(catCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    const maxNs = Math.max(1, ...Object.values(nsCount));
-    const topPages = Object.entries(pageCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    const recent = contribs.slice(0, 15);
-    const blocked = !!info.blockid;
-    const regDate = info.registration ? new Date(info.registration).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "unknown";
-    const ageDays = info.registration ? Math.floor((Date.now() - new Date(info.registration)) / 86400000) : null;
+    state.user = user; state.info = info;
+    await fetchContribs(500, n => { st.textContent = "Fetched " + n.toLocaleString() + " edits, please wait..."; });
     st.textContent = "";
-    const userLink = "https://en.bharatpedia.org/wiki/User:" + encodeURIComponent(user.replace(/ /g, "_"));
-    const talkLink = "https://en.bharatpedia.org/wiki/" + encodeURIComponent(talkTitle.replace(/ /g, "_"));
-    out.innerHTML = `
-    <div class="card"><h2><a href="${userLink}" target="_blank" rel="noopener">${esc(user)}</a> ${blocked ? '<span class="badge b-blocked">BLOCKED</span>' : '<span class="badge b-clean">Not blocked</span>'}</h2>
-    <div class="stat-grid">
-      <div class="stat"><b>${(info.editcount || 0).toLocaleString()}</b><span>Total edits</span></div>
-      <div class="stat"><b>${newPages}</b><span>Pages created</span></div>
-      <div class="stat"><b>${drafts}</b><span>Draft edits</span></div>
-      <div class="stat"><b>${talkEdits}</b><span>Talk edits</span></div>
-      <div class="stat"><b>${undoCount + revertCount}</b><span>Undo/Reverts</span></div>
-      <div class="stat"><b>${minorCount}</b><span>Minor edits</span></div>
-      <div class="stat"><b style="color:var(--ok)">+${bytesAdded.toLocaleString()}</b><span>Bytes added</span></div>
-      <div class="stat"><b style="color:var(--danger)">-${bytesRemoved.toLocaleString()}</b><span>Bytes removed</span></div>
-      <div class="stat"><b>${longestStreak} days</b><span>Longest streak</span></div>
-      <div class="stat"><b>${currentStreak ? currentStreak + " days" : "-"}</b><span>Current streak</span></div>
-      <div class="stat"><b>${regDate}</b><span>Registered</span></div>
-      <div class="stat"><b>${ageDays !== null ? ageDays + " days" : "-"}</b><span>Account age</span></div>
-      <div class="stat"><b>${(info.groups || []).join(", ") || "user"}</b><span>Groups</span></div>
-    </div>${blocked && info.blockreason ? `<p style="font-size:14px">Block reason: ${esc(info.blockreason)}</p>` : ""}</div>
-    <div class="card"><h2>Edit summaries</h2>
-    <div class="nsbar"><span class="lbl">With summary</span><span class="track"><span class="fill" style="width:${summaryPct}%"></span></span><span class="n">${summaryPct}%</span></div>
-    <p style="font-size:13px;color:var(--ink-soft);margin:8px 0 0">${summaryCount} of ${contribs.length} edits (last ${contribs.length}) include an edit summary.</p></div>
-    <div class="card"><h2>Bytes added vs removed (last ${contribs.length} edits)</h2>
-    <div class="nsbar"><span class="lbl">Added</span><span class="track"><span class="fill" style="width:${Math.round(bytesAdded / Math.max(1, bytesAdded + bytesRemoved) * 100)}%;background:var(--ok)"></span></span><span class="n">+${bytesAdded.toLocaleString()}</span></div>
-    <div class="nsbar"><span class="lbl">Removed</span><span class="track"><span class="fill" style="width:${Math.round(bytesRemoved / Math.max(1, bytesAdded + bytesRemoved) * 100)}%;background:var(--danger)"></span></span><span class="n">-${bytesRemoved.toLocaleString()}</span></div>
-    <p style="font-size:13px;color:var(--ink-soft);margin:8px 0 0">Net: ${netBytes >= 0 ? "+" : ""}${netBytes.toLocaleString()} bytes</p></div>
-    <div class="card"><h2>Most active hours (UTC)</h2>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:110px;margin-top:6px">${Array.from({ length: 24 }, (_, h) => {
-      const n = hourCount[h] || 0;
-      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div title="${h}:00 - ${n} edits" style="width:100%;background:var(--accent);border-radius:3px 3px 0 0;height:${Math.round(n / maxHour * 90)}%"></div><span style="font-size:9px;color:var(--ink-faint);margin-top:2px">${[0, 6, 12, 18, 23].includes(h) ? h : ""}</span></div>`;
-    }).join("")}</div>
-    <p style="font-size:12px;color:var(--ink-faint);margin:6px 0 0">Hour labels shown: 0, 6, 12, 18, 23 (UTC)</p></div>
-    ${checkedPages ? `<div class="card"><h2>Page survival rate</h2>
-    <div class="nsbar"><span class="lbl">Still exist</span><span class="track"><span class="fill" style="width:${survivalPct}%"></span></span><span class="n">${survivalPct}%</span></div>
-    <p style="font-size:13px;color:var(--ink-soft);margin:8px 0 0">${survived} of ${checkedPages} created pages still exist.</p></div>` : ""}
-    <div class="card"><h2>Block history</h2>
-    ${blockLog.length ? `<table><tr><th>Date</th><th>Admin</th><th>Expiry</th><th>Reason</th></tr>${blockLog.map(b => `<tr><td>${fmtTime(b.timestamp)}</td><td>${esc(b.user)}</td><td>${esc((b.params && b.params.duration) || b.expiry || "-")}</td><td>${esc(b.comment || "-")}</td></tr>`).join("")}</table>` : `<p style="font-size:14px;color:var(--ink-soft)">No blocks on record.</p>`}</div>
-    <div class="card"><h2>Top categories edited</h2>
-    ${topCats.length ? `<table><tr><th>Category</th><th>Pages</th></tr>${topCats.map(([c, n]) => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(("Category:" + c).replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(c)}</a></td><td>${n}</td></tr>`).join("")}</table><p style="font-size:12px;color:var(--ink-faint)">Based on categories of the 10 most edited pages.</p>` : `<p style="font-size:14px;color:var(--ink-soft)">No category data available.</p>`}</div>
-    ${createdPages.length ? `<div class="card"><h2>Pages created (last ${createdPages.length})</h2><table><tr><th>Page</th><th>When</th></tr>${createdPages.slice(0, 15).map(c => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(c.title.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(c.title)}</a></td><td>${fmtTime(c.timestamp)}</td></tr>`).join("")}</table></div>` : ""}
-    <div class="card"><h2>Monthly activity (last 12 months)</h2>
-    ${monthKeys.map(k => {
-      const n = monthCount[k] || 0;
-      const [yy, mm] = k.split("-");
-      const lbl = MONTH_NAMES[parseInt(mm, 10) - 1] + " " + yy;
-      return `<div class="nsbar"><span class="lbl">${esc(lbl)}</span><span class="track"><span class="fill" style="width:${Math.round(n / maxMonth * 100)}%"></span></span><span class="n">${n}</span></div>`;
-    }).join("")}</div>
-    <div class="card"><h2>Warnings on talk page</h2>
-    ${warnings.length ? `<table><tr><th>Warning</th><th>Details</th></tr>${warnings.slice(0, 20).map(w => `<tr><td>{{${esc(w.type)}}}</td><td>${w.where === "history" ? esc(fmtTime(w.date)) + " by " + esc(w.by || "?") : "found in current talk page text"}</td></tr>`).join("")}</table><p style="font-size:13px;color:var(--ink-soft)"><a href="${talkLink}" target="_blank" rel="noopener">Open talk page</a> to review.</p>` : `<p style="font-size:14px;color:var(--ink-soft)">No warnings found on talk page. ${talkText === null && !talkRevs.length ? "(Talk page may not exist.)" : ""}</p>`}</div>
-    <div class="card"><h2>Edits by namespace (last ${contribs.length})</h2>
-    ${Object.entries(nsCount).sort((a, b) => b[1] - a[1]).map(([ns, n]) => `<div class="nsbar"><span class="lbl">${esc(NS_NAMES[ns] || ("ns:" + ns))}</span><span class="track"><span class="fill" style="width:${Math.round(n / maxNs * 100)}%"></span></span><span class="n">${n}</span></div>`).join("")}</div>
-    <div class="card"><h2>Top edited pages</h2><table><tr><th>Page</th><th>Edits</th></tr>${topPages.map(([t, n]) => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(t.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(t)}</a></td><td>${n}</td></tr>`).join("")}</table></div>
-    <div class="card"><h2>Recent edits</h2><table><tr><th>Time</th><th>Page</th><th>Change</th></tr>${recent.map(c => `<tr><td>${fmtTime(c.timestamp)}</td><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(c.title.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(c.title)}</a></td><td>${c.sizediff >= 0 ? "+" : ""}${c.sizediff}</td></tr>`).join("")}</table></div>`;
+    document.getElementById("tabs").hidden = false;
+    document.getElementById("tabhint").hidden = false;
+    resetTabs();
+    renderOverview();
+    showTab("overview");
   } catch (e) { st.textContent = "Error: " + e.message; }
   btn.disabled = false;
 }
-function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
-function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+function renderOverview() {
+  const info = state.info, user = state.user;
+  const blocked = !!info.blockid;
+  const regDate = info.registration ? new Date(info.registration).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "unknown";
+  const ageDays = info.registration ? Math.floor((Date.now() - new Date(info.registration)) / 86400000) : null;
+  const userLink = "https://en.bharatpedia.org/wiki/User:" + encodeURIComponent(user.replace(/ /g, "_"));
+  document.getElementById("tab-overview").innerHTML =
+  '<div class="card"><h2><a href="' + userLink + '" target="_blank" rel="noopener">' + esc(user) + '</a> ' + (blocked ? '<span class="badge b-blocked">BLOCKED</span>' : '<span class="badge b-clean">Not blocked</span>') + '</h2>' +
+  '<div class="stat-grid">' +
+  '<div class="stat"><b>' + (info.editcount || 0).toLocaleString() + '</b><span>Total edits</span></div>' +
+  '<div class="stat"><b>' + esc((info.groups || []).join(", ") || "user") + '</b><span>Groups</span></div>' +
+  '<div class="stat"><b>' + regDate + '</b><span>Registered</span></div>' +
+  '<div class="stat"><b>' + (ageDays !== null ? ageDays.toLocaleString() + " days" : "-") + '</b><span>Account age</span></div>' +
+  '</div>' + (blocked && info.blockreason ? '<p style="font-size:14px">Block reason: ' + esc(info.blockreason) + '</p>' : '') +
+  '<p style="font-size:13px;color:var(--ink-soft);margin:10px 0 0">Open a tab above for detailed analysis. Each tab fetches its data only when opened.</p></div>';
+}
+async function renderPatterns(el) {
+  await fetchContribs(MAX_EDITS, n => setLoadMsg("patterns", "Fetched " + n.toLocaleString() + " edits, please wait..."));
+  const s = computeStats();
+  const maxNs = Math.max(1, ...Object.values(s.nsCount));
+  const topPages = Object.entries(s.pageCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const maxHour = Math.max(1, ...Object.values(s.hourCount));
+  const monthKeys = last12Months();
+  const maxMonth = Math.max(1, ...monthKeys.map(k => s.monthCount[k] || 0));
+  const recent = state.contribs.slice(0, 15);
+  const n = state.contribs.length.toLocaleString();
+  el.innerHTML = truncNote() +
+  '<div class="card"><h2>Edits by namespace (last ' + n + ')</h2>' +
+  Object.entries(s.nsCount).sort((a, b) => b[1] - a[1]).map(([ns, c]) =>
+    '<div class="nsbar"><span class="lbl">' + esc(NS_NAMES[ns] || ("ns:" + ns)) + '</span><span class="track"><span class="fill" style="width:' + Math.round(c / maxNs * 100) + '%"></span></span><span class="n">' + c.toLocaleString() + '</span></div>'
+  ).join("") + '</div>' +
+  '<div class="card"><h2>Top edited pages</h2><table><tr><th>Page</th><th>Edits</th></tr>' +
+  topPages.map(([t, c]) => '<tr><td><a href="https://en.bharatpedia.org/wiki/' + encodeURIComponent(t.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(t) + '</a></td><td>' + c + '</td></tr>').join("") + '</table></div>' +
+  '<div class="card"><h2>Monthly activity (last 12 months)</h2>' +
+  monthKeys.map(k => {
+    const c = s.monthCount[k] || 0;
+    const parts = k.split("-");
+    const lbl = MONTH_NAMES[parseInt(parts[1], 10) - 1] + " " + parts[0];
+    return '<div class="nsbar"><span class="lbl">' + esc(lbl) + '</span><span class="track"><span class="fill" style="width:' + Math.round(c / maxMonth * 100) + '%"></span></span><span class="n">' + c + '</span></div>';
+  }).join("") + '</div>' +
+  '<div class="card"><h2>Most active hours (UTC)</h2>' +
+  '<div style="display:flex;align-items:flex-end;gap:3px;height:110px;margin-top:6px">' +
+  Array.from({ length: 24 }, (_, h) => {
+    const c = s.hourCount[h] || 0;
+    return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div title="' + h + ':00 - ' + c + ' edits" style="width:100%;background:var(--accent);border-radius:3px 3px 0 0;height:' + Math.round(c / maxHour * 90) + '%"></div><span style="font-size:9px;color:var(--ink-faint);margin-top:2px">' + ([0, 6, 12, 18, 23].includes(h) ? h : "") + '</span></div>';
+  }).join("") + '</div>' +
+  '<p style="font-size:12px;color:var(--ink-faint);margin:6px 0 0">Hour labels shown: 0, 6, 12, 18, 23 (UTC)</p></div>' +
+  '<div class="card"><h2>Recent edits</h2><table><tr><th>Time</th><th>Page</th><th>Change</th></tr>' +
+  recent.map(c => '<tr><td>' + fmtTime(c.timestamp) + '</td><td><a href="https://en.bharatpedia.org/wiki/' + encodeURIComponent(c.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(c.title) + '</a></td><td>' + (c.sizediff >= 0 ? "+" : "") + c.sizediff + '</td></tr>').join("") + '</table></div>';
+}
+async function renderQuality(el) {
+  await fetchContribs(MAX_EDITS, n => setLoadMsg("quality", "Fetched " + n.toLocaleString() + " edits, please wait..."));
+  const s = computeStats();
+  const total = state.contribs.length;
+  const summaryPct = total ? Math.round(s.summaryCount / total * 100) : 0;
+  const netBytes = s.bytesAdded - s.bytesRemoved;
+  const totBytes = Math.max(1, s.bytesAdded + s.bytesRemoved);
+  el.innerHTML = truncNote() +
+  '<div class="card"><div class="stat-grid">' +
+  '<div class="stat"><b>' + s.minorCount.toLocaleString() + '</b><span>Minor edits</span></div>' +
+  '<div class="stat"><b>' + (s.undoCount + s.revertCount).toLocaleString() + '</b><span>Undo/Reverts</span></div>' +
+  '<div class="stat"><b>' + s.longestStreak + ' days</b><span>Longest streak</span></div>' +
+  '<div class="stat"><b>' + (s.currentStreak ? s.currentStreak + " days" : "-") + '</b><span>Current streak</span></div>' +
+  '</div><p style="font-size:12px;color:var(--ink-faint);margin:8px 0 0">Based on the last ' + total.toLocaleString() + ' edits analyzed.</p></div>' +
+  '<div class="card"><h2>Edit summaries</h2>' +
+  '<div class="nsbar"><span class="lbl">With summary</span><span class="track"><span class="fill" style="width:' + summaryPct + '%"></span></span><span class="n">' + summaryPct + '%</span></div>' +
+  '<p style="font-size:13px;color:var(--ink-soft);margin:8px 0 0">' + s.summaryCount.toLocaleString() + ' of ' + total.toLocaleString() + ' edits include an edit summary.</p></div>' +
+  '<div class="card"><h2>Bytes added vs removed (last ' + total.toLocaleString() + ' edits)</h2>' +
+  '<div class="nsbar"><span class="lbl">Added</span><span class="track"><span class="fill" style="width:' + Math.round(s.bytesAdded / totBytes * 100) + '%;background:var(--ok)"></span></span><span class="n">+' + s.bytesAdded.toLocaleString() + '</span></div>' +
+  '<div class="nsbar"><span class="lbl">Removed</span><span class="track"><span class="fill" style="width:' + Math.round(s.bytesRemoved / totBytes * 100) + '%;background:var(--danger)"></span></span><span class="n">-' + s.bytesRemoved.toLocaleString() + '</span></div>' +
+  '<p style="font-size:13px;color:var(--ink-soft);margin:8px 0 0">Net: ' + (netBytes >= 0 ? "+" : "") + netBytes.toLocaleString() + ' bytes</p></div>';
+}
+async function renderWarnings(el) {
+  setLoadMsg("warnings", "Checking talk page, please wait...");
+  const talkTitle = "User talk:" + state.user.replace(/ /g, "_");
+  let talkText = null, talkRevs = [];
+  try {
+    const pt = await api({ action: "parse", page: talkTitle, prop: "wikitext" });
+    if (pt.parse && pt.parse.wikitext) talkText = pt.parse.wikitext["*"];
+  } catch (e) { talkText = null; }
+  try {
+    const rt = await api({ action: "query", prop: "revisions", titles: talkTitle, rvprop: "timestamp|user|comment", rvlimit: 30, rvdir: "older" });
+    const pages = (rt.query && rt.query.pages) || {};
+    const pg = pages[Object.keys(pages)[0]];
+    if (pg && pg.revisions && pg.missing === undefined) talkRevs = pg.revisions;
+  } catch (e) { talkRevs = []; }
+  const warnings = findWarnings(talkText, talkRevs);
+  const talkLink = "https://en.bharatpedia.org/wiki/" + encodeURIComponent(talkTitle.replace(/ /g, "_"));
+  el.innerHTML = '<div class="card"><h2>Warnings on talk page</h2>' +
+  (warnings.length
+    ? '<table><tr><th>Warning</th><th>Details</th></tr>' +
+      warnings.slice(0, 20).map(w => '<tr><td>{{' + esc(w.type) + '}}</td><td>' + (w.where === "history" ? esc(fmtTime(w.date)) + " by " + esc(w.by || "?") : "found in current talk page text") + '</td></tr>').join("") +
+      '</table><p style="font-size:13px;color:var(--ink-soft)"><a href="' + talkLink + '" target="_blank" rel="noopener">Open talk page</a> to review.</p>'
+    : '<p style="font-size:14px;color:var(--ink-soft)">No warnings found on talk page.' + (talkText === null && !talkRevs.length ? " (Talk page may not exist.)" : "") + '</p>') +
+  '</div>';
+}
+async function renderBlocks(el) {
+  setLoadMsg("blocks", "Checking block log, please wait...");
+  let blockLog = [];
+  try {
+    const bl = await api({ action: "query", list: "logevents", letype: "block", letitle: "User:" + state.user.replace(/ /g, "_"), lelimit: 20, leprop: "timestamp|user|comment|details" });
+    blockLog = (bl.query && bl.query.logevents) || [];
+  } catch (e) { blockLog = []; }
+  el.innerHTML = '<div class="card"><h2>Block history</h2>' +
+  (blockLog.length
+    ? '<table><tr><th>Date</th><th>Admin</th><th>Expiry</th><th>Reason</th></tr>' +
+      blockLog.map(b => '<tr><td>' + fmtTime(b.timestamp) + '</td><td>' + esc(b.user) + '</td><td>' + esc((b.params && b.params.duration) || b.expiry || "-") + '</td><td>' + esc(b.comment || "-") + '</td></tr>').join("") + '</table>'
+    : '<p style="font-size:14px;color:var(--ink-soft)">No blocks on record.</p>') +
+  '</div>';
+}
+async function renderPages(el) {
+  await fetchContribs(MAX_EDITS, n => setLoadMsg("pages", "Fetched " + n.toLocaleString() + " edits, please wait..."));
+  const s = computeStats();
+  setLoadMsg("pages", "Checking created pages, please wait...");
+  let survived = 0, checkedPages = 0;
+  const checkTitles = [...new Set(s.createdPages.map(c => c.title))].slice(0, 500);
+  const capped = [...new Set(s.createdPages.map(c => c.title))].length > 500;
+  try {
+    for (let i = 0; i < checkTitles.length; i += 50) {
+      const batch = checkTitles.slice(i, i + 50);
+      const q = await api({ action: "query", titles: batch.join("|"), prop: "info" });
+      const pages = (q.query && q.query.pages) || {};
+      Object.keys(pages).forEach(id => {
+        checkedPages++;
+        if (pages[id].missing === undefined) survived++;
+      });
+      if (i + 50 < checkTitles.length) await new Promise(r => setTimeout(r, 300));
+    }
+  } catch (e) { checkedPages = 0; survived = 0; }
+  const survivalPct = checkedPages ? Math.round(survived / checkedPages * 100) : 0;
+  setLoadMsg("pages", "Checking top categories, please wait...");
+  const catCount = {};
+  try {
+    const topTitles = Object.entries(s.pageCount).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([t]) => t);
+    for (let i = 0; i < topTitles.length; i += 20) {
+      const batch = topTitles.slice(i, i + 20);
+      const q = await api({ action: "query", titles: batch.join("|"), prop: "categories", cllimit: 50 });
+      const pages = (q.query && q.query.pages) || {};
+      Object.keys(pages).forEach(id => {
+        (pages[id].categories || []).forEach(cat => {
+          const name = (cat.title || "").replace(/^Category:/, "");
+          if (name && !/wikipedia|articles|pages|cs1|all articles/i.test(name)) catCount[name] = (catCount[name] || 0) + 1;
+        });
+      });
+    }
+  } catch (e) { /* categories unavailable */ }
+  const topCats = Object.entries(catCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  el.innerHTML = truncNote() +
+  (checkedPages ? '<div class="card"><h2>Page survival rate</h2>' +
+    '<div class="nsbar"><span class="lbl">Still exist</span><span class="track"><span class="fill" style="width:' + survivalPct + '%"></span></span><span class="n">' + survivalPct + '%</span></div>' +
+    '<p style="font-size:13px;color:var(--ink-soft);margin:8px 0 0">' + survived + ' of ' + checkedPages + ' created pages still exist.' + (capped ? ' (Checked the 500 most recent created pages.)' : '') + '</p></div>' : '') +
+  '<div class="card"><h2>Top categories edited</h2>' +
+  (topCats.length
+    ? '<table><tr><th>Category</th><th>Pages</th></tr>' +
+      topCats.map(([c, n]) => '<tr><td><a href="https://en.bharatpedia.org/wiki/' + encodeURIComponent(("Category:" + c).replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(c) + '</a></td><td>' + n + '</td></tr>').join("") +
+      '</table><p style="font-size:12px;color:var(--ink-faint)">Based on categories of the 10 most edited pages.</p>'
+    : '<p style="font-size:14px;color:var(--ink-soft)">No category data available.</p>') + '</div>' +
+  (s.createdPages.length
+    ? '<div class="card"><h2>Pages created (' + s.createdPages.length.toLocaleString() + ' in analyzed edits)</h2><table><tr><th>Page</th><th>When</th></tr>' +
+      s.createdPages.slice(0, 15).map(c => '<tr><td><a href="https://en.bharatpedia.org/wiki/' + encodeURIComponent(c.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(c.title) + '</a></td><td>' + fmtTime(c.timestamp) + '</td></tr>').join("") + '</table></div>'
+    : '');
+}
 document.getElementById("user").addEventListener("keydown", e => { if (e.key === "Enter") analyze(); });
 </script>
 </body>
