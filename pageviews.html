@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Pageviews - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --warn: #9a6a00; --warn-soft: #fbf0cd; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --warn: #e0b95c; --warn-soft: #3a3013; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+input[type=text] { flex: 1 1 220px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow); }
+.card b { display: block; font-size: 24px; }
+.card span { font-size: 13px; color: var(--ink-soft); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow); margin: 12px 0; }
+.panel h2 { margin: 0 0 10px; font-size: 18px; }
+.notice { background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 10px; padding: 12px 16px; margin: 12px 0; font-size: 14px; color: var(--ink); }
+.nsbar { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 14px; }
+.nsbar .lbl { width: 90px; flex-shrink: 0; color: var(--ink-soft); }
+.nsbar .track { flex: 1; background: var(--surface-2); border-radius: 6px; height: 14px; overflow: hidden; }
+.nsbar .fill { display: block; height: 100%; background: var(--accent); border-radius: 6px; }
+.nsbar .n { width: 52px; text-align: right; font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-soft); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Pageviews</h1>
+<p class="sub">Reader traffic and engagement for any page.</p>
+<div class="controls">
+<input type="text" id="title" placeholder="Page title, e.g. Kanpur" />
+<select id="range"><option value="30">Last 30 days</option><option value="60">Last 60 days</option><option value="90" selected>Last 90 days</option></select>
+<button id="go" onclick="analyze()">Analyze</button>
+</div>
+<div class="status" id="status"></div>
+<div id="out"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("API error " + r.status);
+  return r.json();
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function monthKey(d) { return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"); }
+function monthLabel(k) { const y = +k.slice(0, 4), m = +k.slice(5) - 1; return new Date(Date.UTC(y, m, 1)).toLocaleDateString("en-GB", { month: "short", year: "numeric" }); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function analyze() {
+  const title = document.getElementById("title").value.trim();
+  const days = +document.getElementById("range").value;
+  const btn = document.getElementById("go"), st = document.getElementById("status"), out = document.getElementById("out");
+  if (!title) { st.textContent = "Enter a page title first."; return; }
+  btn.disabled = true; out.innerHTML = "";
+  try {
+    const info = await api({ action: "query", titles: title, prop: "info" });
+    const pages = info.query.pages || {};
+    const pg = pages[Object.keys(pages)[0]];
+    if (!pg || pg.missing !== undefined) { st.textContent = "Page not found: " + title; btn.disabled = false; return; }
+    const realTitle = pg.title;
+
+    st.textContent = "Checking for pageview data...";
+    let views = null;
+    try {
+      const pv = await api({ action: "query", titles: realTitle, prop: "pageviews" });
+      const p = pv.query.pages[Object.keys(pv.query.pages)[0]];
+      if (p && p.pageviews && Object.keys(p.pageviews).length) views = p.pageviews;
+    } catch (e) { views = null; }
+
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    st.textContent = "Fetching edit history, please wait...";
+    const revs = [];
+    let rvcontinue = null;
+    do {
+      const p = { action: "query", titles: realTitle, prop: "revisions", rvprop: "timestamp|user", rvlimit: "max", rvdir: "older", rvstart: new Date().toISOString(), rvend: cutoff.toISOString() };
+      if (rvcontinue) p.rvcontinue = rvcontinue;
+      const d = await api(p);
+      const rp = d.query.pages[Object.keys(d.query.pages)[0]];
+      (rp.revisions || []).forEach(r => revs.push(r));
+      rvcontinue = d.continue && d.continue.rvcontinue;
+      if (rvcontinue) await sleep(250);
+    } while (rvcontinue);
+
+    const months = {}, editors = {};
+    revs.forEach(r => {
+      const k = monthKey(new Date(r.timestamp));
+      months[k] = (months[k] || 0) + 1;
+      const u = r.user || "unknown";
+      editors[u] = (editors[u] || 0) + 1;
+    });
+    const mkeys = Object.keys(months).sort();
+    const mmax = Math.max(1, ...mkeys.map(k => months[k]));
+    const topEd = Object.entries(editors).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const pageUrl = "https://en.bharatpedia.org/wiki/" + encodeURIComponent(realTitle.replace(/ /g, "_"));
+
+    let html = "";
+    if (views) {
+      const vals = Object.entries(views).sort();
+      const total = vals.reduce((a, [, v]) => a + (v || 0), 0);
+      html += '<div class="cards"><div class="card"><b>' + total.toLocaleString() + '</b><span>Total views (recorded days)</span></div>' +
+        '<div class="card"><b>' + Math.round(total / Math.max(1, vals.length)).toLocaleString() + '</b><span>Avg views per day</span></div></div>';
+    } else {
+      html += '<div class="notice">Direct pageview counts are not available via the public API. Showing edit activity as an engagement proxy instead: pages that get edited often are usually the ones readers visit.</div>';
+    }
+    html += '<div class="cards">' +
+      '<div class="card"><b>' + revs.length.toLocaleString() + '</b><span>Edits in last ' + days + ' days</span></div>' +
+      '<div class="card"><b>' + Object.keys(editors).length.toLocaleString() + '</b><span>Active editors</span></div>' +
+      '<div class="card"><b>' + (revs.length ? (revs.length / days).toFixed(1) : "0") + '</b><span>Edits per day</span></div></div>';
+    html += '<div class="panel"><h2><a href="' + pageUrl + '" target="_blank" rel="noopener">' + esc(realTitle) + '</a> &middot; edit activity</h2>' +
+      (mkeys.length
+        ? mkeys.map(k => '<div class="nsbar"><span class="lbl">' + esc(monthLabel(k)) + '</span><span class="track"><span class="fill" style="width:' + Math.round(months[k] / mmax * 100) + '%"></span></span><span class="n">' + months[k].toLocaleString() + '</span></div>').join("")
+        : '<p style="color:var(--ink-soft);font-size:14px">No edits in this period.</p>') + '</div>';
+    if (topEd.length) {
+      html += '<div class="panel"><h2>Most active editors (last ' + days + ' days)</h2><table><tr><th>Editor</th><th>Edits</th></tr>' +
+        topEd.map(([u, n]) => {
+          const ul = "https://en.bharatpedia.org/wiki/User:" + encodeURIComponent(u.replace(/ /g, "_"));
+          return '<tr><td><a href="' + ul + '" target="_blank" rel="noopener">' + esc(u) + '</a></td><td>' + n.toLocaleString() + '</td></tr>';
+        }).join("") + '</table></div>';
+    }
+    out.innerHTML = html;
+    st.textContent = "Done.";
+  } catch (e) { st.textContent = "Error: " + e.message; }
+  btn.disabled = false;
+}
+document.getElementById("title").addEventListener("keydown", e => { if (e.key === "Enter") analyze(); });
+</script>
+</body>
+</html>

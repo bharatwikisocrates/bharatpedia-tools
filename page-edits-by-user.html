@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Find Edits by User - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --pos: #1e7a3c; --neg: #b3261e; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --pos: #5cc47c; --neg: #f0837c; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; color: var(--ink-soft); }
+input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); margin-bottom: 12px; }
+button { padding: 10px 22px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.count { font-size: 18px; font-weight: 700; margin: 12px 0 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); }
+tr:hover td { background: var(--surface-2); }
+.pos { color: var(--pos); font-weight: 600; }
+.neg { color: var(--neg); font-weight: 600; }
+.comment { color: var(--ink-soft); font-size: 13px; }
+.tablewrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Find Edits by User</h1>
+<p class="sub">List every edit a specific user made to a specific page.</p>
+<div class="card">
+<label for="page">Page title</label>
+<input type="text" id="page" placeholder="e.g. Battle of Wana" />
+<label for="user">Username</label>
+<input type="text" id="user" placeholder="e.g. Dokania" />
+<button id="go" onclick="run()">Search</button>
+<div class="status" id="status"></div>
+<div class="count" id="count"></div>
+<div class="tablewrap"><table id="tbl" hidden>
+<thead><tr><th>Date</th><th>Change</th><th>Edit summary</th><th>Links</th></tr></thead>
+<tbody id="rows"></tbody>
+</table></div>
+</div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const WIKI = "https://en.bharatpedia.org/wiki/";
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("API error " + r.status);
+  return r.json();
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
+async function run() {
+  const page = document.getElementById("page").value.trim();
+  const user = document.getElementById("user").value.trim();
+  const st = document.getElementById("status"), tbl = document.getElementById("tbl"),
+        rows = document.getElementById("rows"), count = document.getElementById("count"),
+        btn = document.getElementById("go");
+  if (!page || !user) { st.textContent = "Enter both a page title and a username."; return; }
+  btn.disabled = true; rows.innerHTML = ""; tbl.hidden = true; count.textContent = "";
+  st.textContent = "Fetching edits...";
+  try {
+    let revs = [], cont = null;
+    do {
+      const p = { action: "query", prop: "revisions", titles: page, rvuser: user, rvprop: "ids|timestamp|comment|sizediff|user", rvlimit: "max", rvdir: "older", formatversion: 2 };
+      if (cont) p.rvcontinue = cont;
+      const d = await api(p);
+      const pages = (d.query && d.query.pages) || [];
+      if (!pages.length || pages[0].missing) throw new Error("Page not found: " + page);
+      (pages[0].revisions || []).forEach(r => revs.push(r));
+      cont = d.continue && d.continue.rvcontinue;
+      st.textContent = "Fetching edits... " + revs.length + " so far";
+    } while (cont);
+    const titleU = encodeURIComponent(page.replace(/ /g, "_"));
+    count.textContent = revs.length + (revs.length === 1 ? " edit" : " edits") + " by " + user + " on " + page;
+    st.textContent = "";
+    if (!revs.length) { st.textContent = "No edits by this user found on this page."; }
+    else {
+      tbl.hidden = false;
+      rows.innerHTML = revs.map(r => {
+        const sd = typeof r.sizediff === "number" ? r.sizediff : 0;
+        const sdHtml = sd > 0 ? '<span class="pos">+' + sd + "</span>"
+          : sd < 0 ? '<span class="neg">' + sd + "</span>" : "0";
+        const diffUrl = "https://en.bharatpedia.org/w/index.php?title=" + titleU + "&diff=" + r.revid + "&oldid=" + r.parentid;
+        const pageUrl = WIKI + titleU;
+        return "<tr><td style='white-space:nowrap'>" + fmtTime(r.timestamp) + "</td>" +
+          "<td style='white-space:nowrap'>" + sdHtml + "</td>" +
+          "<td class='comment'>" + (r.comment ? esc(r.comment) : "<i>no summary</i>") + "</td>" +
+          "<td style='white-space:nowrap'><a href='" + diffUrl + "' target='_blank' rel='noopener'>diff</a> &middot; " +
+          "<a href='" + pageUrl + "' target='_blank' rel='noopener'>page</a></td></tr>";
+      }).join("");
+    }
+  } catch (e) {
+    st.textContent = "Error: " + e.message;
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

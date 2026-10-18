@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Find Addition / Removal - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --ok: #1e7a3c; --ok-soft: #e2f3e6; --danger: #b3261e; --danger-soft: #fbe7e5; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --ok: #5cc47c; --ok-soft: #1d3626; --danger: #f0837c; --danger-soft: #3d1f1d; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; color: var(--ink-soft); }
+input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); margin-bottom: 12px; }
+.radio-row { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.radio-row label { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 400; color: var(--ink); margin: 0; cursor: pointer; }
+button { padding: 10px 22px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.progress { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.progress > div { height: 100%; background: var(--accent); width: 0%; transition: width .2s; }
+.result { background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--ok); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow); margin-top: 12px; }
+.result.removal { border-left-color: var(--danger); }
+.result h2 { margin: 0 0 8px; font-size: 18px; }
+.meta { font-size: 14px; color: var(--ink-soft); }
+.links { margin-top: 8px; font-size: 14px; }
+.note { font-size: 13px; color: var(--ink-faint); margin-top: 12px; }
+.hint { font-size: 13px; color: var(--ink-faint); margin: -6px 0 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Find Addition / Removal</h1>
+<p class="sub">Find the revision where a piece of text was added to or removed from a page.</p>
+<div class="card">
+<label for="page">Page title</label>
+<input type="text" id="page" placeholder="e.g. Battle of Wana" />
+<label for="needle">Text to search for</label>
+<input type="text" id="needle" placeholder="e.g. a sentence or phrase from the page" />
+<div class="hint">Enter the exact text as it appeared (or appears) on the page.</div>
+<div class="radio-row">
+<label><input type="radio" name="mode" value="add" checked /> Find addition</label>
+<label><input type="radio" name="mode" value="remove" /> Find removal</label>
+</div>
+<button id="go" onclick="run()">Search</button>
+<div class="status" id="status"></div>
+<div class="progress" id="pbar" hidden><div id="pfill"></div></div>
+<div id="result"></div>
+</div>
+<p class="note">Large histories may take a while. The search uses a binary search over revision content to find the exact revision efficiently.</p>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const WIKI = "https://en.bharatpedia.org/wiki/";
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("API error " + r.status);
+  return r.json();
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
+function setProgress(done, total) {
+  const bar = document.getElementById("pbar"), fill = document.getElementById("pfill");
+  bar.hidden = false;
+  fill.style.width = total ? Math.round(done / total * 100) + "%" : "0%";
+}
+const contentCache = {};
+async function getContent(revid) {
+  if (contentCache[revid] !== undefined) return contentCache[revid];
+  const d = await api({ action: "query", prop: "revisions", revids: revid, rvprop: "content", rvslots: "main", formatversion: 2 });
+  const pages = (d.query && d.query.pages) || [];
+  let text = "";
+  if (pages.length && pages[0].revisions && pages[0].revisions[0] && pages[0].revisions[0].slots) {
+    text = pages[0].revisions[0].slots.main.content || "";
+  }
+  contentCache[revid] = text;
+  return text;
+}
+async function run() {
+  const page = document.getElementById("page").value.trim();
+  const needle = document.getElementById("needle").value;
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const st = document.getElementById("status"), res = document.getElementById("result"), btn = document.getElementById("go");
+  if (!page || !needle) { st.textContent = "Enter both a page title and the text to search for."; return; }
+  btn.disabled = true; res.innerHTML = ""; document.getElementById("pbar").hidden = true;
+  st.textContent = "Fetching revision history...";
+  try {
+    let revs = [], cont = null;
+    do {
+      const p = { action: "query", prop: "revisions", titles: page, rvprop: "ids|timestamp|user|comment", rvlimit: "max", rvdir: "older", formatversion: 2 };
+      if (cont) p.rvcontinue = cont;
+      const d = await api(p);
+      const pages = (d.query && d.query.pages) || [];
+      if (!pages.length || pages[0].missing) throw new Error("Page not found: " + page);
+      (pages[0].revisions || []).forEach(r => revs.push(r));
+      cont = d.continue && d.continue.rvcontinue;
+      st.textContent = "Fetching revision history... " + revs.length + " so far";
+    } while (cont && revs.length < 5000);
+    if (!revs.length) throw new Error("No revisions found.");
+    // revs: index 0 = newest, index len-1 = oldest
+    const has = async (revid) => (await getContent(revid)).indexOf(needle) !== -1;
+    let checks = 0;
+    const totalChecks = Math.ceil(Math.log2(revs.length + 1)) + 2;
+    setProgress(0, totalChecks);
+    const cur = await has(revs[0].revid); checks++; setProgress(checks, totalChecks);
+    let found = null;
+    if (mode === "add") {
+      if (!cur) throw new Error("The text is not present in the current revision. Try \"Find removal\" instead.");
+      // binary search for largest index i such that text present in revs[i] (oldest containing)
+      let lo = 0, hi = revs.length; // present at lo, absent at hi (hi=len is virtual absent)
+      while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        const present = await has(revs[mid].revid);
+        checks++; setProgress(checks, totalChecks);
+        st.textContent = "Checking revision " + checks + " of ~" + totalChecks + "...";
+        if (present) lo = mid; else hi = mid;
+      }
+      // revs[lo] is oldest containing; the addition happened between revs[lo+1] (older, absent) and revs[lo]
+      if (lo === revs.length - 1) {
+        found = { rev: revs[lo], kind: "add", note: "The text has been present since the oldest revision checked." };
+      } else {
+        found = { rev: revs[lo], prev: revs[lo + 1], kind: "add" };
+      }
+    } else {
+      if (cur) throw new Error("The text is still present in the current revision. Try \"Find addition\" instead.");
+      // binary search for smallest index i such that text absent in revs[i]... we want newest revision where text was removed:
+      // text absent at 0 (newest). Find largest index containing text, then removal = index-1... careful.
+      // Find smallest index i with text present -> removal happened between revs[i-1] (absent, newer) and revs[i].
+      let lo = -1, hi = revs.length; // absent at lo (virtual), check hi side
+      // verify text existed at some point
+      const oldestHas = await has(revs[revs.length - 1].revid); checks++; setProgress(checks, totalChecks);
+      if (!oldestHas) throw new Error("The text was not found in any checked revision (oldest or newest). Check the exact text.");
+      lo = -1; hi = revs.length - 1; // present at hi
+      while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        const present = await has(revs[mid].revid);
+        checks++; setProgress(checks, totalChecks);
+        st.textContent = "Checking revision " + checks + " of ~" + totalChecks + "...";
+        if (present) hi = mid; else lo = mid;
+      }
+      // revs[hi] = newest containing; removal happened between revs[hi] and revs[hi-1] (newer, absent)
+      if (hi === 0) {
+        found = { rev: revs[hi], kind: "remove", note: "The text was removed in the current revision." };
+      } else {
+        found = { rev: revs[hi - 1], prev: revs[hi], kind: "remove" };
+      }
+    }
+    st.textContent = "Done. " + checks + " revisions checked.";
+    document.getElementById("pbar").hidden = true;
+    const r = found.rev;
+    const titleU = encodeURIComponent(page.replace(/ /g, "_"));
+    const diffUrl = found.prev
+      ? "https://en.bharatpedia.org/w/index.php?title=" + titleU + "&diff=" + r.revid + "&oldid=" + found.prev.revid
+      : "https://en.bharatpedia.org/w/index.php?title=" + titleU + "&oldid=" + r.revid;
+    const pageUrl = WIKI + titleU;
+    res.innerHTML =
+      '<div class="result' + (found.kind === "remove" ? " removal" : "") + '"><h2>' +
+      (found.kind === "add" ? "Text added in this revision" : "Text removed in this revision") + "</h2>" +
+      '<div class="meta">' + esc(r.user || "unknown") + " &middot; " + fmtTime(r.timestamp) +
+      (r.comment ? ' &middot; &ldquo;' + esc(r.comment) + "&rdquo;" : "") + "</div>" +
+      (found.note ? '<div class="meta">' + esc(found.note) + "</div>" : "") +
+      '<div class="links"><a href="' + diffUrl + '" target="_blank" rel="noopener">View diff</a> &middot; ' +
+      '<a href="' + pageUrl + '" target="_blank" rel="noopener">Open page on Bharatpedia</a></div></div>';
+  } catch (e) {
+    st.textContent = "Error: " + e.message;
+    document.getElementById("pbar").hidden = true;
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
