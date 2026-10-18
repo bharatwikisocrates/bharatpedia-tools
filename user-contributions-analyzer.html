@@ -59,6 +59,24 @@ async function api(params) {
   const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
   const r = await fetch(url); return r.json();
 }
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function findWarnings(wikitext, revs) {
+  const out = [];
+  if (wikitext) {
+    const re = /\{\{\s*(subst:\s*)?(uw-[a-z0-9-]+|warning|uw|block[^{}]|spam[^{}]|spam-?[a-z0-9-]*|test[1-4]?|final warning)\b[^{}]*\}\}/gi;
+    let m;
+    while ((m = re.exec(wikitext)) !== null) {
+      out.push({ type: m[2].replace(/^subst:\s*/i, "").trim(), where: "current" });
+    }
+  }
+  (revs || []).forEach(r => {
+    const cm = (r.comment || "").toLowerCase();
+    if (/warning|warned|\buw-/.test(cm)) {
+      out.push({ type: "warning notice", where: "history", date: r.timestamp, by: r.user });
+    }
+  });
+  return out;
+}
 async function analyze() {
   const user = document.getElementById("user").value.trim();
   if (!user) return;
@@ -78,8 +96,8 @@ async function analyze() {
       uccontinue = d.continue && d.continue.uccontinue;
       st.textContent = "Fetched " + contribs.length + " edits...";
     } while (uccontinue && contribs.length < 500);
-    const nsCount = {}, pageCount = {};
-    let newPages = 0, drafts = 0, talkEdits = 0, undoCount = 0, revertCount = 0, minorCount = 0;
+    const nsCount = {}, pageCount = {}, monthCount = {};
+    let newPages = 0, drafts = 0, talkEdits = 0, undoCount = 0, revertCount = 0, minorCount = 0, summaryCount = 0;
     const createdPages = [];
     contribs.forEach(c => {
       nsCount[c.ns] = (nsCount[c.ns] || 0) + 1;
@@ -88,10 +106,38 @@ async function analyze() {
       if (c.ns === 118) drafts++;
       if (c.ns % 2 === 1 && c.ns > 0) talkEdits++;
       if (c.minor !== undefined) minorCount++;
+      if ((c.comment || "").trim()) summaryCount++;
       const cm = (c.comment || "").toLowerCase();
       if (cm.includes("undo")) undoCount++;
       if (cm.includes("revert") || cm.includes("rv ")) revertCount++;
+      const dt = new Date(c.timestamp);
+      if (!isNaN(dt)) {
+        const key = dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0");
+        monthCount[key] = (monthCount[key] || 0) + 1;
+      }
     });
+    const summaryPct = contribs.length ? Math.round(summaryCount / contribs.length * 100) : 0;
+    const monthKeys = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      monthKeys.push(d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"));
+    }
+    const maxMonth = Math.max(1, ...monthKeys.map(k => monthCount[k] || 0));
+    st.textContent = "Checking talk page for warnings...";
+    const talkTitle = "User talk:" + user.replace(/ /g, "_");
+    let talkText = null, talkRevs = [];
+    try {
+      const pt = await api({ action: "parse", page: talkTitle, prop: "wikitext" });
+      if (pt.parse && pt.parse.wikitext) talkText = pt.parse.wikitext["*"];
+    } catch (e) { talkText = null; }
+    try {
+      const rt = await api({ action: "query", prop: "revisions", titles: talkTitle, rvprop: "timestamp|user|comment", rvlimit: 30, rvdir: "older" });
+      const pages = (rt.query && rt.query.pages) || {};
+      const pg = pages[Object.keys(pages)[0]];
+      if (pg && pg.revisions && pg.missing === undefined) talkRevs = pg.revisions;
+    } catch (e) { talkRevs = []; }
+    const warnings = findWarnings(talkText, talkRevs);
     const maxNs = Math.max(1, ...Object.values(nsCount));
     const topPages = Object.entries(pageCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const recent = contribs.slice(0, 15);
@@ -100,6 +146,7 @@ async function analyze() {
     const ageDays = info.registration ? Math.floor((Date.now() - new Date(info.registration)) / 86400000) : null;
     st.textContent = "";
     const userLink = "https://en.bharatpedia.org/wiki/User:" + encodeURIComponent(user.replace(/ /g, "_"));
+    const talkLink = "https://en.bharatpedia.org/wiki/" + encodeURIComponent(talkTitle.replace(/ /g, "_"));
     out.innerHTML = `
     <div class="card"><h2><a href="${userLink}" target="_blank" rel="noopener">${esc(user)}</a> ${blocked ? '<span class="badge b-blocked">BLOCKED</span>' : '<span class="badge b-clean">Not blocked</span>'}</h2>
     <div class="stat-grid">
@@ -113,7 +160,19 @@ async function analyze() {
       <div class="stat"><b>${ageDays !== null ? ageDays + " days" : "-"}</b><span>Account age</span></div>
       <div class="stat"><b>${(info.groups || []).join(", ") || "user"}</b><span>Groups</span></div>
     </div>${blocked && info.blockreason ? `<p style="font-size:14px">Block reason: ${esc(info.blockreason)}</p>` : ""}</div>
+    <div class="card"><h2>Edit summaries</h2>
+    <div class="nsbar"><span class="lbl">With summary</span><span class="track"><span class="fill" style="width:${summaryPct}%"></span></span><span class="n">${summaryPct}%</span></div>
+    <p style="font-size:13px;color:var(--ink-soft);margin:8px 0 0">${summaryCount} of ${contribs.length} edits (last ${contribs.length}) include an edit summary.</p></div>
     ${createdPages.length ? `<div class="card"><h2>Pages created (last ${createdPages.length})</h2><table><tr><th>Page</th><th>When</th></tr>${createdPages.slice(0, 15).map(c => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(c.title.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(c.title)}</a></td><td>${fmtTime(c.timestamp)}</td></tr>`).join("")}</table></div>` : ""}
+    <div class="card"><h2>Monthly activity (last 12 months)</h2>
+    ${monthKeys.map(k => {
+      const n = monthCount[k] || 0;
+      const [yy, mm] = k.split("-");
+      const lbl = MONTH_NAMES[parseInt(mm, 10) - 1] + " " + yy;
+      return `<div class="nsbar"><span class="lbl">${esc(lbl)}</span><span class="track"><span class="fill" style="width:${Math.round(n / maxMonth * 100)}%"></span></span><span class="n">${n}</span></div>`;
+    }).join("")}</div>
+    <div class="card"><h2>Warnings on talk page</h2>
+    ${warnings.length ? `<table><tr><th>Warning</th><th>Details</th></tr>${warnings.slice(0, 20).map(w => `<tr><td>{{${esc(w.type)}}}</td><td>${w.where === "history" ? esc(fmtTime(w.date)) + " by " + esc(w.by || "?") : "found in current talk page text"}</td></tr>`).join("")}</table><p style="font-size:13px;color:var(--ink-soft)"><a href="${talkLink}" target="_blank" rel="noopener">Open talk page</a> to review.</p>` : `<p style="font-size:14px;color:var(--ink-soft)">No warnings found on talk page. ${talkText === null && !talkRevs.length ? "(Talk page may not exist.)" : ""}</p>`}</div>
     <div class="card"><h2>Edits by namespace (last ${contribs.length})</h2>
     ${Object.entries(nsCount).sort((a, b) => b[1] - a[1]).map(([ns, n]) => `<div class="nsbar"><span class="lbl">${esc(NS_NAMES[ns] || ("ns:" + ns))}</span><span class="track"><span class="fill" style="width:${Math.round(n / maxNs * 100)}%"></span></span><span class="n">${n}</span></div>`).join("")}</div>
     <div class="card"><h2>Top edited pages</h2><table><tr><th>Page</th><th>Edits</th></tr>${topPages.map(([t, n]) => `<tr><td><a href="https://en.bharatpedia.org/wiki/${encodeURIComponent(t.replace(/ /g, "_"))}" target="_blank" rel="noopener">${esc(t)}</a></td><td>${n}</td></tr>`).join("")}</table></div>
