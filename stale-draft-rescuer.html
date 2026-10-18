@@ -80,7 +80,11 @@ async function load() {
       }
       st.textContent = "Fetched " + Math.min(i + 20, all.length) + " / " + all.length;
     }
-    st.textContent = drafts.length + " stale drafts loaded.";
+    if (drafts.length === 0) {
+      st.textContent = "No highly well cited rescue-worthy draft found.";
+    } else {
+      st.textContent = drafts.length + " stale drafts loaded.";
+    }
     render();
   } catch (e) { st.textContent = "Error: " + e.message; }
   btn.disabled = false;
