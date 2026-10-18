@@ -218,10 +218,26 @@ function findWarnings(wikitext, revs) {
     while ((m = re.exec(wikitext)) !== null) {
       out.push({ type: m[2].replace(/^subst:\s*/i, "").trim(), where: "current" });
     }
+    const text = wikitext.toLowerCase();
+    const patterns = [
+      ["unsourced content warning", /i noticed that you (added|changed).{0,80}didn't provide a reliable source/],
+      ["content removal warning", /please do not remove content or templates.{0,60}without giving a valid reason/],
+      ["vandalism warning", /please (stop|refrain from) making (unconstructive|disruptive) edits/],
+      ["spam warning", /please do not add (inappropriate|promotional|spam)/],
+      ["test edit warning", /your (test )?edit.{0,40}has been (reverted|removed)/],
+      ["general warning", /hello, i['\u2019]m.{0,40}i noticed that you/],
+      ["notability warning", /may not meet.{0,40}notability (guideline|criteria)/],
+      ["copyright warning", /copyright.{0,40}violation|do not copy.{0,30}copyrighted/],
+    ];
+    patterns.forEach(([label, rx]) => {
+      if (rx.test(text) && !out.some(o => o.type === label)) {
+        out.push({ type: label, where: "current" });
+      }
+    });
   }
   (revs || []).forEach(r => {
     const cm = (r.comment || "").toLowerCase();
-    if (/warning|warned|\buw-/.test(cm)) {
+    if (/warning|warned|\buw-|twinkle|antivandal/.test(cm)) {
       out.push({ type: "warning notice", where: "history", date: r.timestamp, by: r.user });
     }
   });
