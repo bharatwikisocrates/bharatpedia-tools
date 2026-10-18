@@ -66,12 +66,12 @@ async function find() {
     const gaps = [];
     for (let i = 0; i < members.length; i += 20) {
       const batch = members.slice(i, i + 20);
-      const d = await api({ action: "query", prop: "images|info", pageids: batch.map(m => m.pageid).join("|"), imlimit: 5, inprop: "" });
+      const d = await api({ action: "query", prop: "pageimages|info", pageids: batch.map(m => m.pageid).join("|"), pithumbsize: 100, inprop: "" });
       const pages = d.query.pages || {};
       for (const pid in pages) {
         const pg = pages[pid];
-        const imgs = (pg.images || []).filter(im => !/\.svg$/i.test(im.title));
-        if (!imgs.length) gaps.push({ title: pg.title, size: pg.length });
+        // pageimage exists if the page has a suitable lead image (non-SVG)
+        if (!pg.pageimage) gaps.push({ title: pg.title, size: pg.length });
       }
       st.textContent = "Checked " + Math.min(i + 20, members.length) + " / " + members.length + ". Gaps so far: " + gaps.length;
     }
