@@ -12,8 +12,8 @@
 ( function () {
 	'use strict';
 
-	var TOOL_PAGE = 'Bharatpedia:Auto interlinker';
-	var MAX_CHECK = 200;
+	var TOOL_PAGE = 'Bharatpedia:Auto_interlinker';
+	var MAX_CHECK = 100;
 	var MAX_LINKS = 50;
 
 	var STOP = ( 'a,an,the,and,or,but,nor,of,in,on,at,to,for,with,by,from,as,is,was,were,are,be,been,being,' +
@@ -112,75 +112,41 @@
 	}
 
 	function extractCandidates( text, safeRanges ) {
+		// Simplified robust version - extracts capitalized phrases only
 		var cands = [], seen = {};
-		var wordRe = /[\p{L}][\p{L}\p{N}'-]*/gu;
-		var r, rs, seg, lines, li, line, abs, words, m, i, j, runLen, len, s, win, lows, parts, lookup, key;
+		var i, r, rs, seg;
+		// Simple approach: find all capitalized words/phrases via regex on safe text
+		var safeText = "";
 		for ( r = 0; r < safeRanges.length; r++ ) {
 			rs = safeRanges[ r ];
-			seg = text.slice( rs[ 0 ], rs[ 1 ] );
-			lines = seg.split( '\n' );
-			abs = rs[ 0 ];
-			for ( li = 0; li < lines.length; li++ ) {
-				line = lines[ li ];
-				if ( !/^\s*=+.*=+\s*$/.test( line ) ) {
-					words = [];
-					wordRe.lastIndex = 0;
-					while ( ( m = wordRe.exec( line ) ) !== null ) {
-						words.push( { w: m[ 0 ], start: abs + m.index, end: abs + m.index + m[ 0 ].length } );
-					}
-					i = 0;
-					while ( i < words.length ) {
-						if ( /^\p{Lu}/u.test( words[ i ].w ) || /^[a-z]/.test( words[ i ].w ) ) {
-							j = i;
-							while ( j < words.length && ( /^\p{Lu}/u.test( words[ j ].w ) || /^[a-z]/.test( words[ j ].w ) ) ) {
-								// break the run at sentence boundaries so phrases do
-								// not bleed across full stops, e.g. "Movement. Gandhi"
-								if ( j > i && /[.!?;:]/.test( text.slice( words[ j - 1 ].end, words[ j ].start ) ) ) {
-									break;
-								}
-								j++;
-							}
-							runLen = j - i;
-							for ( len = Math.min( 4, runLen ); len >= 1; len-- ) {
-								for ( s = i; s + len <= j; s++ ) {
-									win = words.slice( s, s + len );
-									lows = win.map( function ( x ) { return x.w.toLowerCase(); } );
-									if ( len === 1 && STOP.indexOf( lows[ 0 ] ) !== -1 ) continue;
-									if ( lows.every( function ( w ) { return STOP.indexOf( w ) !== -1; } ) ) continue;
-									parts = win.map( function ( x, k ) { return k === win.length - 1 ? stripPossessive( x.w ) : x.w; } );
-									lookup = parts.join( ' ' );
-									if ( lookup.length < 2 ) continue;
-									if ( /^\d+$/.test( lookup.replace( /\s/g, '' ) ) ) continue;
-									lookup = lookup.charAt( 0 ).toUpperCase() + lookup.slice( 1 );
-									pluralS = '';
-									if ( /s$/i.test( lookup ) && lookup.length > 3 ) {
-										singular = lookup.replace( /s$/i, '' );
-										if ( singular.length > 2 ) {
-											pluralS = lookup.match( /s$/i )[ 0 ];
-											lookup = singular;
-										}
-									}
-									key = lookup.toLowerCase();
-									if ( seen[ key ] ) continue;
-									seen[ key ] = true;
-									cands.push( {
-										term: lookup,
-										pluralS: pluralS,
-										display: text.slice( win[ 0 ].start, win[ win.length - 1 ].end ),
-										start: win[ 0 ].start,
-										end: win[ win.length - 1 ].end,
-										words: len
-									} );
-								}
-							}
-							i = j;
-						} else {
-							i++;
-						}
-					}
-				}
-				abs += line.length + 1;
+			safeText += text.slice( rs[ 0 ], rs[ 1 ] ) + "\n";
+		}
+		// Match 1-4 capitalized words in a row
+		var re = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b/g;
+		var m;
+		var count = 0;
+		while ( ( m = re.exec( safeText ) ) !== null && count < 500 ) {
+			count++;
+			var phrase = m[1];
+			// Skip if all stopwords (simple check)
+			var words = phrase.split(/\s+/);
+			if ( words.length === 1 ) {
+				var lw = words[0].toLowerCase();
+				if ( STOP.indexOf( lw ) !== -1 ) continue;
 			}
+			var key = phrase.toLowerCase();
+			if ( seen[ key ] ) continue;
+			seen[ key ] = true;
+			// Handle plural
+			var pluralS = '';
+			var term = phrase;
+			if ( /s$/i.test( term ) && term.length > 3 ) {
+				var sing = term.replace( /s$/i, '' );
+				if ( sing.length > 2 ) { pluralS = term.match( /s$/i )[0]; term = sing; key = term.toLowerCase(); }
+				if ( seen[ key ] ) continue;
+				seen[ key ] = true;
+			}
+			cands.push( { term: term, pluralS: pluralS, display: phrase, start: 0, end: 0, words: words.length } );
 		}
 		return cands;
 	}
@@ -261,13 +227,13 @@
 		function resolveTitles( lookups, onProgress ) {
 			var map = {};
 			var batches = [];
-			for ( var i = 0; i < lookups.length; i += 50 ) {
-				batches.push( lookups.slice( i, i + 50 ) );
+			for ( var i = 0; i < lookups.length; i += 100 ) {
+				batches.push( lookups.slice( i, i + 100 ) );
 			}
 			var chain = $.Deferred().resolve().promise();
 			batches.forEach( function ( batch, bi ) {
 				chain = chain.then( function () {
-					if ( onProgress ) onProgress( Math.min( ( bi + 1 ) * 50, lookups.length ), lookups.length );
+					if ( onProgress ) onProgress( Math.min( ( bi + 1 ) * 100, lookups.length ), lookups.length );
 					return api.get( {
 						action: 'query', titles: batch.join( '|' ), prop: 'info', redirects: 1
 					} ).then( function ( d ) {
