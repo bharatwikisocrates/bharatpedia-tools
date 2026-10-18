@@ -208,7 +208,7 @@ function last12Months() {
   return keys;
 }
 function truncNote() {
-  return state.truncated ? '<div class="card"><p style="font-size:13px;color:var(--ink-soft);margin:0">Note: this user has more than ' + MAX_EDITS.toLocaleString() + ' edits. Showing analysis of the most recent ' + MAX_EDITS.toLocaleString() + ' edits.</p></div>' : '';
+  return '';
 }
 function findWarnings(wikitext, revs) {
   const out = [];
@@ -400,6 +400,7 @@ async function renderPages(el) {
     }
   } catch (e) { /* categories unavailable */ }
   const topCats = Object.entries(catCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  pgGroups = classifyCreated(s.createdPages);
   el.innerHTML = truncNote() +
   (checkedPages ? '<div class="card"><h2>Page survival rate</h2>' +
     '<div class="nsbar"><span class="lbl">Still exist</span><span class="track"><span class="fill" style="width:' + survivalPct + '%"></span></span><span class="n">' + survivalPct + '%</span></div>' +
@@ -411,9 +412,72 @@ async function renderPages(el) {
       '</table><p style="font-size:12px;color:var(--ink-faint)">Based on categories of the 10 most edited pages.</p>'
     : '<p style="font-size:14px;color:var(--ink-soft)">No category data available.</p>') + '</div>' +
   (s.createdPages.length
-    ? '<div class="card"><h2>Pages created (' + s.createdPages.length.toLocaleString() + ' in analyzed edits)</h2><table><tr><th>Page</th><th>When</th></tr>' +
-      s.createdPages.slice(0, 15).map(c => '<tr><td><a href="https://en.bharatpedia.org/wiki/' + encodeURIComponent(c.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(c.title) + '</a></td><td>' + fmtTime(c.timestamp) + '</td></tr>').join("") + '</table></div>'
+    ? pgSectionCard('art', 'Articles created', pgGroups.art) +
+      pgSectionCard('tpl', 'Templates created', pgGroups.tpl) +
+      pgSectionCard('draft', 'Drafts created', pgGroups.draft) +
+      pgSectionCard('talk', 'Talk pages created', pgGroups.talk) +
+      pgSectionCard('sub', 'Subpages created', pgGroups.sub) +
+      pgSectionCard('mw', 'MediaWiki pages created', pgGroups.mw) +
+      pgSectionCard('other', 'Other pages created', pgGroups.other)
     : '');
+  pgState = { art: 0, tpl: 0, draft: 0, talk: 0, sub: 0, mw: 0, other: 0 };
+  pgSize = 100;
+}
+let pgGroups = {};
+let pgState = { art: 0, tpl: 0, draft: 0, talk: 0, sub: 0, mw: 0, other: 0 };
+let pgSize = 100;
+function classifyCreated(list) {
+  const g = { art: [], tpl: [], draft: [], talk: [], sub: [], mw: [], other: [] };
+  list.forEach(c => {
+    const ns = c.ns || 0;
+    if (ns > 0 && ns % 2 === 1) g.talk.push(c);
+    else if (ns === 10) g.tpl.push(c);
+    else if (ns === 118) g.draft.push(c);
+    else if (ns === 8) g.mw.push(c);
+    else if (c.title.indexOf("/") !== -1) g.sub.push(c);
+    else if (ns === 0) g.art.push(c);
+    else g.other.push(c);
+  });
+  return g;
+}
+function pgSectionCard(key, label, list) {
+  if (!list.length) return '';
+  return '<div class="card"><h2 onclick="togglePgSection(\'' + key + '\')" style="cursor:pointer">' + label + ' (' + list.length.toLocaleString() + ') <span id="togg-' + key + '" style="font-size:14px">\u25BC</span></h2>' +
+    '<div id="sec-' + key + '" hidden style="margin-top:10px">' +
+    '<div style="margin-bottom:8px"><label style="font-size:13px">Show: </label><select id="pgSize-' + key + '" class="pgSizeSel" onchange="pgSizeChange(\'' + key + '\')" style="padding:4px 8px;border-radius:6px"><option value="100">100</option><option value="500">500</option><option value="1000">1000</option></select> per page</div>' +
+    '<div id="pgTable-' + key + '"></div>' +
+    '<div id="pgNav-' + key + '" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"></div>' +
+    '</div></div>';
+}
+function togglePgSection(key) {
+  const sec = document.getElementById("sec-" + key);
+  const tg = document.getElementById("togg-" + key);
+  const opening = sec.hidden;
+  sec.hidden = !opening;
+  tg.textContent = opening ? "\u25B2" : "\u25BC";
+  if (opening && !sec.dataset.rendered) { sec.dataset.rendered = "1"; renderPgTable(key); }
+}
+function renderPgTable(key) {
+  const list = pgGroups[key] || [];
+  const total = list.length;
+  const pages = Math.max(1, Math.ceil(total / pgSize));
+  if (pgState[key] >= pages) pgState[key] = pages - 1;
+  if (pgState[key] < 0) pgState[key] = 0;
+  const start = pgState[key] * pgSize;
+  const slice = list.slice(start, start + pgSize);
+  document.getElementById("pgTable-" + key).innerHTML = '<table><tr><th>Page</th><th>When</th></tr>' +
+    slice.map(c => '<tr><td><a href="https://en.bharatpedia.org/wiki/' + encodeURIComponent(c.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(c.title) + '</a></td><td>' + fmtTime(c.timestamp) + '</td></tr>').join("") + '</table>';
+  document.getElementById("pgNav-" + key).innerHTML =
+    '<button onclick="pgGo(\'' + key + '\',-1)" ' + (pgState[key] <= 0 ? 'disabled' : '') + ' style="padding:6px 12px">Previous ' + pgSize + '</button>' +
+    '<span style="font-size:13px;color:var(--ink-soft)">Page ' + (pgState[key] + 1) + ' of ' + pages + ' (' + (start + 1) + '-' + Math.min(start + pgSize, total) + ' of ' + total.toLocaleString() + ')</span>' +
+    '<button onclick="pgGo(\'' + key + '\',1)" ' + (pgState[key] >= pages - 1 ? 'disabled' : '') + ' style="padding:6px 12px">Next ' + pgSize + '</button>';
+}
+function pgGo(key, d) { pgState[key] += d; renderPgTable(key); }
+function pgSizeChange(key) {
+  pgSize = parseInt(document.getElementById("pgSize-" + key).value, 10);
+  document.querySelectorAll(".pgSizeSel").forEach(sel => { sel.value = String(pgSize); });
+  pgState[key] = 0;
+  renderPgTable(key);
 }
 document.getElementById("user").addEventListener("keydown", e => { if (e.key === "Enter") analyze(); });
 </script>
