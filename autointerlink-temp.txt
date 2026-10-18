@@ -213,6 +213,39 @@
 		} );
 		$row.append( $titleInput, $scanBtn );
 		$root.append( $row );
+		// Autocomplete dropdown for article titles
+		var $suggest = $( '<div>' ).css( {
+			position: 'absolute', background: '#fff', border: '1px solid #a2a9b1',
+			'border-radius': '4px', 'box-shadow': '0 2px 8px rgba(0,0,0,0.15)',
+			'z-index': '1000', 'max-height': '200px', overflow: 'auto', display: 'none',
+			'font-size': '14px', 'min-width': '300px'
+		} );
+		$( 'body' ).append( $suggest );
+		var suggestTimer = null;
+		$titleInput.on( 'input', function () {
+			var q = $titleInput.val().trim();
+			if ( suggestTimer ) clearTimeout( suggestTimer );
+			if ( q.length < 2 ) { $suggest.hide(); return; }
+			suggestTimer = setTimeout( function () {
+				api.get( { action: 'opensearch', search: q, limit: 8, namespace: 0 } ).then( function ( d ) {
+					var titles = d[1] || [];
+					$suggest.empty();
+					if ( !titles.length ) { $suggest.hide(); return; }
+					titles.forEach( function ( t ) {
+						var $it = $( '<div>' ).text( t ).css( { padding: '8px 12px', cursor: 'pointer' } );
+						$it.on( 'mouseenter', function () { $it.css( 'background', '#eaf3ff' ); } );
+						$it.on( 'mouseleave', function () { $it.css( 'background', '#fff' ); } );
+						$it.on( 'click', function () { $titleInput.val( t ); $suggest.hide(); $titleInput.focus(); } );
+						$suggest.append( $it );
+					} );
+					var off = $titleInput.offset();
+					$suggest.css( { top: off.top + $titleInput.outerHeight() + 4, left: off.left, width: $titleInput.outerWidth() } ).show();
+				} ).catch( function () { $suggest.hide(); } );
+			}, 300 );
+		} );
+		$( document ).on( 'click', function ( e ) {
+			if ( !$( e.target ).closest( $suggest ).length && !$( e.target ).closest( $titleInput ).length ) $suggest.hide();
+		} );
 
 		var $msg = $( '<div>' ).css( { 'font-size': '13px', color: '#d33', 'margin-bottom': '8px' } ).hide();
 		$root.append( $msg );
