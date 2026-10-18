@@ -65,41 +65,39 @@
 	}
 
 	function extractCandidates( text, safeRanges ) {
-		// Simplified robust version - extracts capitalized phrases only
+		// Simplified robust version - extracts capitalized phrases with REAL positions
 		var cands = [], seen = {};
-		var i, r, rs, seg;
-		// Simple approach: find all capitalized words/phrases via regex on safe text
-		var safeText = "";
-		for ( r = 0; r < safeRanges.length; r++ ) {
-			rs = safeRanges[ r ];
-			safeText += text.slice( rs[ 0 ], rs[ 1 ] ) + "\n";
-		}
-		// Match 1-4 capitalized words in a row
+		var r, rs, seg, base;
 		var re = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b/g;
-		var m;
-		var count = 0;
-		while ( ( m = re.exec( safeText ) ) !== null && count < 500 ) {
-			count++;
-			var phrase = m[1];
-			// Skip if all stopwords (simple check)
-			var words = phrase.split(/\s+/);
-			if ( words.length === 1 ) {
-				var lw = words[0].toLowerCase();
-				if ( STOP.indexOf( lw ) !== -1 ) continue;
-			}
-			var key = phrase.toLowerCase();
-			if ( seen[ key ] ) continue;
-			seen[ key ] = true;
-			// Handle plural
-			var pluralS = '';
-			var term = phrase;
-			if ( /s$/i.test( term ) && term.length > 3 ) {
-				var sing = term.replace( /s$/i, '' );
-				if ( sing.length > 2 ) { pluralS = term.match( /s$/i )[0]; term = sing; key = term.toLowerCase(); }
+		var m, count = 0;
+		for ( r = 0; r < safeRanges.length && count < 500; r++ ) {
+			rs = safeRanges[ r ];
+			seg = text.slice( rs[ 0 ], rs[ 1 ] );
+			base = rs[ 0 ];
+			re.lastIndex = 0;
+			while ( ( m = re.exec( seg ) ) !== null && count < 500 ) {
+				count++;
+				var phrase = m[1];
+				var absStart = base + m.index;
+				var absEnd = absStart + phrase.length;
+				var words = phrase.split(/\s+/);
+				if ( words.length === 1 ) {
+					var lw = words[0].toLowerCase();
+					if ( STOP.indexOf( lw ) !== -1 ) continue;
+				}
+				var key = phrase.toLowerCase();
 				if ( seen[ key ] ) continue;
 				seen[ key ] = true;
+				var pluralS = '';
+				var term = phrase;
+				if ( /s$/i.test( term ) && term.length > 3 ) {
+					var sing = term.replace( /s$/i, '' );
+					if ( sing.length > 2 ) { pluralS = term.match( /s$/i )[0]; term = sing; key = term.toLowerCase(); }
+					if ( seen[ key ] ) continue;
+					seen[ key ] = true;
+				}
+				cands.push( { term: term, pluralS: pluralS, display: phrase, start: absStart, end: absEnd, words: words.length } );
 			}
-			cands.push( { term: term, pluralS: pluralS, display: phrase, start: 0, end: 0, words: words.length } );
 		}
 		return cands;
 	}
