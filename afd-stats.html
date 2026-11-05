@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>AfD Statistics - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --danger: #b3261e; --danger-soft: #fbe7e5; --ok: #1e7a3c; --ok-soft: #e2f3e6; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --danger: #f0837c; --danger-soft: #3d1f1d; --ok: #5cc47c; --ok-soft: #1d3626; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; }
+input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.card h2 { margin: 0 0 12px; font-size: 18px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 6px; }
+.stat { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; }
+.stat b { display: block; font-size: 22px; }
+.stat span { font-size: 12px; color: var(--ink-soft); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
+.note { font-size: 13px; color: var(--ink-soft); }
+.pager { margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pager button { padding: 6px 12px; font-size: 14px; }
+select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>AfD Statistics</h1>
+<p class="sub">Deletion discussions a user has taken part in on Bharatpedia: one row per discussion, with their edit count and first and last edit dates.</p>
+<div class="controls">
+<input type="text" id="user" placeholder="Enter username" />
+<button id="go" onclick="run()">Show statistics</button>
+</div>
+<div class="status" id="status"></div>
+<div id="results"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const WIKI = "https://en.bharatpedia.org/wiki/";
+const AFD_PREFIX = "Bharatpedia:Articles for deletion/";
+const MAX_EDITS = 10000;
+const state = { user: null, rows: [], page: 0, size: 100 };
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  const r = await fetch(url); return r.json();
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
+function pageUrl(title) { return WIKI + encodeURIComponent(title.replace(/ /g, "_")); }
+function isDiscussion(title) {
+  if (!title.startsWith(AFD_PREFIX)) return false;
+  const rest = title.slice(AFD_PREFIX.length);
+  if (!rest) return false;
+  if (rest.startsWith("Log/")) return false;
+  return true;
+}
+async function run() {
+  const user = document.getElementById("user").value.trim();
+  if (!user) return;
+  const btn = document.getElementById("go"), st = document.getElementById("status");
+  const res = document.getElementById("results");
+  btn.disabled = true;
+  res.innerHTML = "";
+  state.rows = []; state.page = 0;
+  st.textContent = "Fetching user info...";
+  try {
+    const u = await api({ action: "query", list: "users", ususers: user, usprop: "editcount|registration" });
+    const info = (u.query.users || [])[0];
+    if (!info || info.missing !== undefined) { st.textContent = "User not found."; btn.disabled = false; return; }
+    state.user = user;
+    const byTitle = {};
+    let fetched = 0, cont = null, capped = false;
+    while (true) {
+      const p = { action: "query", list: "usercontribs", ucuser: user, ucnamespace: 4, ucprop: "title|timestamp", uclimit: 500, ucdir: "older" };
+      if (cont) p.uccontinue = cont;
+      const d = await api(p);
+      const batch = (d.query && d.query.usercontribs) || [];
+      batch.forEach(c => {
+        fetched++;
+        if (!isDiscussion(c.title)) return;
+        let row = byTitle[c.title];
+        if (!row) { row = byTitle[c.title] = { title: c.title, count: 0, first: c.timestamp, last: c.timestamp }; }
+        row.count++;
+        if (c.timestamp < row.first) row.first = c.timestamp;
+        if (c.timestamp > row.last) row.last = c.timestamp;
+      });
+      st.textContent = "Fetched " + fetched.toLocaleString() + " project-space edits, please wait...";
+      cont = (d.continue && d.continue.uccontinue) || null;
+      if (!cont) break;
+      if (fetched >= MAX_EDITS) { capped = true; break; }
+      await new Promise(r => setTimeout(r, 300));
+    }
+    state.rows = Object.values(byTitle).sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+    st.textContent = capped ? "Stopped after " + MAX_EDITS.toLocaleString() + " project-space edits; results below cover that range only." : "";
+    renderResults();
+  } catch (e) { st.textContent = "Error: " + e.message; }
+  btn.disabled = false;
+}
+function renderResults() {
+  const res = document.getElementById("results");
+  const rows = state.rows;
+  if (!rows.length) {
+    res.innerHTML = '<div class="card"><p class="note" style="margin:0">No edits to AfD discussion pages found for this user. (Edits to the AfD hub page and the daily logs are not counted.)</p></div>';
+    return;
+  }
+  const totalEdits = rows.reduce((n, r) => n + r.count, 0);
+  const firstEver = rows.reduce((a, r) => (r.first < a ? r.first : a), rows[0].first);
+  const lastEver = rows.reduce((a, r) => (r.last > a ? r.last : a), rows[0].last);
+  res.innerHTML =
+  '<div class="card"><h2>' + esc(state.user) + ' at AfD</h2>' +
+  '<div class="stat-grid">' +
+  '<div class="stat"><b>' + rows.length.toLocaleString() + '</b><span>Discussions participated in</span></div>' +
+  '<div class="stat"><b>' + totalEdits.toLocaleString() + '</b><span>Edits in those discussions</span></div>' +
+  '<div class="stat"><b>' + fmtTime(firstEver).split(",")[0] + '</b><span>First AfD edit</span></div>' +
+  '<div class="stat"><b>' + fmtTime(lastEver).split(",")[0] + '</b><span>Latest AfD edit</span></div>' +
+  '</div>' +
+  '<p class="note" style="margin:10px 0 0">One row per discussion page under ' + esc(AFD_PREFIX) + ', excluding the hub page and the daily log pages. Sorted by most recent activity.</p></div>' +
+  '<div class="card"><h2>Discussions (' + rows.length.toLocaleString() + ')</h2>' +
+  '<div style="margin-bottom:8px"><label style="font-size:13px">Show: </label><select id="pgSize" onchange="sizeChange()"><option value="100">100</option><option value="500">500</option><option value="1000">1000</option></select> per page</div>' +
+  '<div id="pgTable"></div><div class="pager" id="pgNav"></div></div>';
+  document.getElementById("pgSize").value = String(state.size);
+  renderTable();
+}
+function renderTable() {
+  const rows = state.rows, total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / state.size));
+  if (state.page >= pages) state.page = pages - 1;
+  if (state.page < 0) state.page = 0;
+  const start = state.page * state.size;
+  const slice = rows.slice(start, start + state.size);
+  document.getElementById("pgTable").innerHTML =
+    '<table><tr><th>Discussion</th><th>Their edits</th><th>First edit</th><th>Last edit</th></tr>' +
+    slice.map(r => '<tr><td><a href="' + pageUrl(r.title) + '" target="_blank" rel="noopener">' + esc(r.title.slice(AFD_PREFIX.length)) + '</a></td><td>' + r.count + '</td><td>' + fmtTime(r.first) + '</td><td>' + fmtTime(r.last) + '</td></tr>').join("") +
+    '</table>';
+  document.getElementById("pgNav").innerHTML =
+    '<button onclick="goPage(-1)" ' + (state.page <= 0 ? 'disabled' : '') + '>Previous</button>' +
+    '<span class="note">Page ' + (state.page + 1) + ' of ' + pages + ' (' + (start + 1) + '-' + Math.min(start + state.size, total) + ' of ' + total.toLocaleString() + ')</span>' +
+    '<button onclick="goPage(1)" ' + (state.page >= pages - 1 ? 'disabled' : '') + '>Next</button>';
+}
+function goPage(d) { state.page += d; renderTable(); }
+function sizeChange() { state.size = parseInt(document.getElementById("pgSize").value, 10); state.page = 0; renderTable(); }
+document.getElementById("user").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+(function () {
+  const q = new URLSearchParams(location.search);
+  const u = (q.get("user") || q.get("username") || "").trim();
+  if (u) { document.getElementById("user").value = u; run(); }
+})();
+</script>
+</body>
+</html>

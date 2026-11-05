@@ -496,6 +496,11 @@ function pgSizeChange(key) {
   renderPgTable(key);
 }
 document.getElementById("user").addEventListener("keydown", e => { if (e.key === "Enter") analyze(); });
+(function () {
+  const q = new URLSearchParams(location.search);
+  const u = (q.get("user") || q.get("username") || "").trim();
+  if (u) { document.getElementById("user").value = u; analyze(); }
+})();
 </script>
 </body>
 </html>
