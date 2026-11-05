@@ -85,6 +85,33 @@ function userFromSig(text, fromIdx) {
 }
 const VOTE_WORDS = ["speedy delete", "speedy keep", "procedural close", "snow delete", "snow keep", "no consensus", "delete", "keep", "redirect", "merge", "comment", "neutral", "move", "rename", "draftify", "userfy", "transwiki", "support", "oppose", "withdraw", "withdrawn"];
 function niceWord(w) { return w.charAt(0).toUpperCase() + w.slice(1); }
+function detectVote(firstLine) {
+  const seg = firstLine.replace(/^[*#:\s]+/, "").slice(0, 80);
+  let cand = null;
+  const bold = /^'''\s*([^']{1,40}?)'''/.exec(seg);
+  if (bold) cand = bold[1];
+  else {
+    const plain = /^([A-Za-z][A-Za-z ]{0,24}?)\s*[:.\-–—]/.exec(seg);
+    if (plain) cand = plain[1];
+  }
+  if (!cand) return null;
+  let w = cand.trim().toLowerCase().replace(/[:.\s]+$/, "");
+  let qual = "";
+  const qm = /^(strong|weak|tentative|reluctant|firm)\s+(.+)$/.exec(w);
+  if (qm) { qual = qm[1]; w = qm[2]; }
+  if (w === "note" || w === "question" || w.indexOf("note ") === 0 || w.indexOf("question ") === 0) return "Comment";
+  if (VOTE_WORDS.indexOf(w) === -1) {
+    const parts = w.split(/\s+/);
+    let found = null;
+    for (let n = Math.min(3, parts.length); n >= 1; n--) {
+      const p = parts.slice(0, n).join(" ");
+      if (VOTE_WORDS.indexOf(p) !== -1) { found = p; break; }
+    }
+    if (!found) return null;
+    w = found;
+  }
+  return qual ? niceWord(qual) + " " + w : niceWord(w);
+}
 function parseResult(text) {
   const m = /The result (?:of the discussion )?was '''([^']+)'''/i.exec(text);
   if (m) return niceWord(m[1].trim().toLowerCase());
@@ -114,11 +141,8 @@ function analyzeDiscussion(text, isCreator, user) {
     if (/The result (?:of the discussion )?was/i.test(block)) return;
     if (/Creating deletion discussion/i.test(block) && isCreator) return;
     out.commented = true;
-    const bm = /^[*#:]+\s*'''([^']{1,30})'''/.exec(lines[j]);
-    if (bm) {
-      const w = bm[1].trim().toLowerCase().replace(/[:.\s]+$/, "");
-      if (VOTE_WORDS.indexOf(w) !== -1) out.vote = niceWord(w);
-    }
+    const v = detectVote(lines[j]);
+    if (v) out.vote = v;
   });
   return out;
 }
@@ -225,7 +249,7 @@ function renderResults() {
   '<div class="stat"><b>' + fmtTime(lastEver).split(",")[0] + '</b><span>Latest AfD edit</span></div>' +
   '</div>' +
   (resLine ? '<p class="note" style="margin:10px 0 0">Results of the closed discussions: ' + resLine + (closedBy ? ' &middot; Closed by this user: ' + closedBy : '') + '</p>' : '') +
-  '<p class="note" style="margin:6px 0 0">One row per discussion page under ' + esc(AFD_PREFIX) + ', excluding the hub page and the daily log pages. Sorted by most recent activity. The result is read from the closure line on the discussion page, and their part from their signed comments: Nominated means they created the discussion, and a !vote is the bold word (Delete, Keep, Redirect and so on) of their signed vote.' + (state.analyzeNote ? ' ' + esc(state.analyzeNote) : '') + '</p></div>' +
+  '<p class="note" style="margin:6px 0 0">One row per discussion page under ' + esc(AFD_PREFIX) + ', excluding the hub page and the daily log pages. Sorted by most recent activity. The result is read from the closure line on the discussion page, and their part from their signed comments: Nominated means they created the discussion, and a !vote is the word their signed vote starts with (Delete, Keep, Redirect, Comment and so on), whether it is written in bold or plain with a colon.' + (state.analyzeNote ? ' ' + esc(state.analyzeNote) : '') + '</p></div>' +
   '<div class="card"><h2>Discussions (' + rows.length.toLocaleString() + ')</h2>' +
   '<div style="margin-bottom:8px"><label style="font-size:13px">Show: </label><select id="pgSize" onchange="sizeChange()"><option value="100">100</option><option value="500">500</option><option value="1000">1000</option></select> per page</div>' +
   '<div id="pgTable"></div><div class="pager" id="pgNav"></div></div>';
