@@ -91,7 +91,7 @@ function parseResult(text) {
   if (text.indexOf("xfd-closed") !== -1 || /The above discussion is preserved as an archive/i.test(text)) return "Closed";
   return "Open";
 }
-function analyzeDiscussion(text, creator, user) {
+function analyzeDiscussion(text, isCreator, user) {
   const out = { result: parseResult(text), closer: null, vote: null, commented: false, closedByUser: false };
   const sig = sigRegex(user);
   const rm = /The result (?:of the discussion )?was '''[^']+'''/i.exec(text);
@@ -112,7 +112,7 @@ function analyzeDiscussion(text, creator, user) {
     const block = lines.slice(j, i + 1).join("\n");
     if (/delsort-notice/i.test(block)) return;
     if (/The result (?:of the discussion )?was/i.test(block)) return;
-    if (/CREATE|Creating deletion discussion/i.test(block) && creator && creator.toLowerCase() === user.trim().toLowerCase()) return;
+    if (/Creating deletion discussion/i.test(block) && isCreator) return;
     out.commented = true;
     const bm = /^[*#:]+\s*'''([^']{1,30})'''/.exec(lines[j]);
     if (bm) {
@@ -139,7 +139,7 @@ async function run() {
     const byTitle = {};
     let fetched = 0, cont = null, capped = false;
     while (true) {
-      const p = { action: "query", list: "usercontribs", ucuser: user, ucnamespace: 4, ucprop: "title|timestamp", uclimit: 500, ucdir: "older" };
+      const p = { action: "query", list: "usercontribs", ucuser: user, ucnamespace: 4, ucprop: "title|timestamp|flags", uclimit: 500, ucdir: "older" };
       if (cont) p.uccontinue = cont;
       const d = await api(p);
       const batch = (d.query && d.query.usercontribs) || [];
@@ -147,8 +147,9 @@ async function run() {
         fetched++;
         if (!isDiscussion(c.title)) return;
         let row = byTitle[c.title];
-        if (!row) { row = byTitle[c.title] = { title: c.title, count: 0, first: c.timestamp, last: c.timestamp, result: null, vote: null, role: null, closedByUser: false }; }
+        if (!row) { row = byTitle[c.title] = { title: c.title, count: 0, first: c.timestamp, last: c.timestamp, created: false, result: null, vote: null, role: null, closedByUser: false }; }
         row.count++;
+        if ("new" in c) row.created = true;
         if (c.timestamp < row.first) row.first = c.timestamp;
         if (c.timestamp > row.last) row.last = c.timestamp;
       });
@@ -164,20 +165,15 @@ async function run() {
       st.textContent = "Reading " + toAnalyze.length.toLocaleString() + " discussion pages to find results and votes...";
       for (const batch of chunks(toAnalyze, 50)) {
         const titles = batch.map(r => r.title).join("|");
-        const [cur, first] = await Promise.all([
-          api({ action: "query", prop: "revisions", rvprop: "content", rvslots: "main", titles: titles }),
-          api({ action: "query", prop: "revisions", rvprop: "user", rvlimit: 1, rvdir: "newer", titles: titles })
-        ]);
-        const creators = {}, contents = {};
-        Object.values((first.query && first.query.pages) || {}).forEach(p => { if (p.revisions && p.revisions[0]) creators[p.title] = p.revisions[0].user; });
+        const cur = await api({ action: "query", prop: "revisions", rvprop: "content", rvslots: "main", titles: titles });
+        const contents = {};
         Object.values((cur.query && cur.query.pages) || {}).forEach(p => { if (p.revisions && p.revisions[0]) contents[p.title] = p.revisions[0].slots.main["*"]; });
         batch.forEach(row => {
           const text = contents[row.title] || "";
-          const creator = creators[row.title] || null;
-          const a = analyzeDiscussion(text, creator, user);
+          const a = analyzeDiscussion(text, row.created, user);
           row.result = a.result;
           row.closedByUser = a.closedByUser;
-          if (creator && creator.toLowerCase() === user.toLowerCase()) row.role = "Nominated";
+          if (row.created) row.role = "Nominated";
           else if (a.vote && a.vote !== "Comment") { row.role = "Voted"; row.vote = a.vote; }
           else if (a.vote === "Comment" || a.commented) row.role = "Commented";
           else row.role = "Edited";
