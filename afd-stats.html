@@ -28,19 +28,24 @@ button:disabled { opacity: .5; }
 .stat b { display: block; font-size: 22px; }
 .stat span { font-size: 12px; color: var(--ink-soft); }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
 .note { font-size: 13px; color: var(--ink-soft); }
 .pager { margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pager button { padding: 6px 12px; font-size: 14px; }
 select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 14px; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--ink-soft); white-space: nowrap; }
+.badge.delete { background: var(--danger-soft); color: var(--danger); }
+.badge.keep { background: var(--ok-soft); color: var(--ok); }
+.badge.nom { background: var(--accent); color: var(--accent-ink); }
+.chip { display: inline-block; margin-left: 6px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: var(--ink-soft); white-space: nowrap; }
 </style>
 </head>
 <body>
 <div class="wrap">
 <a class="back" href="index.html">&larr; All tools</a>
 <h1>AfD Statistics</h1>
-<p class="sub">Deletion discussions a user has taken part in on Bharatpedia: one row per discussion, with their edit count and first and last edit dates.</p>
+<p class="sub">Deletion discussions a user has taken part in on Bharatpedia: for each one, how the discussion ended (delete, keep, redirect, no consensus, or still open) and what the user did in it (nominated it, or their !vote: delete, keep, redirect, or just a comment).</p>
 <div class="controls">
 <input type="text" id="user" placeholder="Enter username" />
 <button id="go" onclick="run()">Show statistics</button>
@@ -53,6 +58,7 @@ const API = "https://en.bharatpedia.org/w/api.php";
 const WIKI = "https://en.bharatpedia.org/wiki/";
 const AFD_PREFIX = "Bharatpedia:Articles for deletion/";
 const MAX_EDITS = 10000;
+const MAX_ANALYZE = 1000;
 const state = { user: null, rows: [], page: 0, size: 100 };
 async function api(params) {
   const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
@@ -67,6 +73,54 @@ function isDiscussion(title) {
   if (!rest) return false;
   if (rest.startsWith("Log/")) return false;
   return true;
+}
+function chunks(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
+function sigRegex(user) {
+  const name = user.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "[ _]");
+  return new RegExp("\\[\\[User(?: talk)?:" + name + "(?=[\\]|#])", "i");
+}
+function userFromSig(text, fromIdx) {
+  const m = /\[\[User:([^\]|#]+)/.exec(text.slice(fromIdx, fromIdx + 300));
+  return m ? m[1].replace(/_/g, " ").trim() : null;
+}
+const VOTE_WORDS = ["speedy delete", "speedy keep", "procedural close", "snow delete", "snow keep", "no consensus", "delete", "keep", "redirect", "merge", "comment", "neutral", "move", "rename", "draftify", "userfy", "transwiki", "support", "oppose", "withdraw", "withdrawn"];
+function niceWord(w) { return w.charAt(0).toUpperCase() + w.slice(1); }
+function parseResult(text) {
+  const m = /The result (?:of the discussion )?was '''([^']+)'''/i.exec(text);
+  if (m) return niceWord(m[1].trim().toLowerCase());
+  if (text.indexOf("xfd-closed") !== -1 || /The above discussion is preserved as an archive/i.test(text)) return "Closed";
+  return "Open";
+}
+function analyzeDiscussion(text, creator, user) {
+  const out = { result: parseResult(text), closer: null, vote: null, commented: false, closedByUser: false };
+  const sig = sigRegex(user);
+  const rm = /The result (?:of the discussion )?was '''[^']+'''/i.exec(text);
+  if (rm) {
+    const closer = userFromSig(text, rm.index);
+    if (closer) { out.closer = closer; out.closedByUser = closer.toLowerCase() === user.trim().toLowerCase(); }
+  }
+  const lines = text.split("\n");
+  const sigAt = [];
+  lines.forEach((ln, i) => { if (sig.test(ln)) sigAt.push(i); sig.lastIndex = 0; });
+  sigAt.forEach(i => {
+    let j = i;
+    while (j > 0) {
+      if (/^[*#:]/.test(lines[j])) break;
+      if (/^=/.test(lines[j - 1])) break;
+      j--;
+    }
+    const block = lines.slice(j, i + 1).join("\n");
+    if (/delsort-notice/i.test(block)) return;
+    if (/The result (?:of the discussion )?was/i.test(block)) return;
+    if (/CREATE|Creating deletion discussion/i.test(block) && creator && creator.toLowerCase() === user.trim().toLowerCase()) return;
+    out.commented = true;
+    const bm = /^[*#:]+\s*'''([^']{1,30})'''/.exec(lines[j]);
+    if (bm) {
+      const w = bm[1].trim().toLowerCase().replace(/[:.\s]+$/, "");
+      if (VOTE_WORDS.indexOf(w) !== -1) out.vote = niceWord(w);
+    }
+  });
+  return out;
 }
 async function run() {
   const user = document.getElementById("user").value.trim();
@@ -93,7 +147,7 @@ async function run() {
         fetched++;
         if (!isDiscussion(c.title)) return;
         let row = byTitle[c.title];
-        if (!row) { row = byTitle[c.title] = { title: c.title, count: 0, first: c.timestamp, last: c.timestamp }; }
+        if (!row) { row = byTitle[c.title] = { title: c.title, count: 0, first: c.timestamp, last: c.timestamp, result: null, vote: null, role: null, closedByUser: false }; }
         row.count++;
         if (c.timestamp < row.first) row.first = c.timestamp;
         if (c.timestamp > row.last) row.last = c.timestamp;
@@ -105,10 +159,44 @@ async function run() {
       await new Promise(r => setTimeout(r, 300));
     }
     state.rows = Object.values(byTitle).sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+    const toAnalyze = state.rows.slice(0, MAX_ANALYZE);
+    if (toAnalyze.length) {
+      st.textContent = "Reading " + toAnalyze.length.toLocaleString() + " discussion pages to find results and votes...";
+      for (const batch of chunks(toAnalyze, 50)) {
+        const titles = batch.map(r => r.title).join("|");
+        const [cur, first] = await Promise.all([
+          api({ action: "query", prop: "revisions", rvprop: "content", rvslots: "main", titles: titles }),
+          api({ action: "query", prop: "revisions", rvprop: "user", rvlimit: 1, rvdir: "newer", titles: titles })
+        ]);
+        const creators = {}, contents = {};
+        Object.values((first.query && first.query.pages) || {}).forEach(p => { if (p.revisions && p.revisions[0]) creators[p.title] = p.revisions[0].user; });
+        Object.values((cur.query && cur.query.pages) || {}).forEach(p => { if (p.revisions && p.revisions[0]) contents[p.title] = p.revisions[0].slots.main["*"]; });
+        batch.forEach(row => {
+          const text = contents[row.title] || "";
+          const creator = creators[row.title] || null;
+          const a = analyzeDiscussion(text, creator, user);
+          row.result = a.result;
+          row.closedByUser = a.closedByUser;
+          if (creator && creator.toLowerCase() === user.toLowerCase()) row.role = "Nominated";
+          else if (a.vote && a.vote !== "Comment") { row.role = "Voted"; row.vote = a.vote; }
+          else if (a.vote === "Comment" || a.commented) row.role = "Commented";
+          else row.role = "Edited";
+        });
+      }
+    }
+    state.analyzeNote = state.rows.length > MAX_ANALYZE ? "Result and vote reading was limited to the " + MAX_ANALYZE.toLocaleString() + " most recent discussions." : "";
     st.textContent = capped ? "Stopped after " + MAX_EDITS.toLocaleString() + " project-space edits; results below cover that range only." : "";
     renderResults();
   } catch (e) { st.textContent = "Error: " + e.message; }
   btn.disabled = false;
+}
+function resultBadge(r) {
+  if (!r) return '<span class="badge">...</span>';
+  const low = r.toLowerCase();
+  let cls = "";
+  if (low.indexOf("delete") !== -1) cls = "delete";
+  else if (low.indexOf("keep") !== -1) cls = "keep";
+  return '<span class="badge ' + cls + '">' + esc(r) + '</span>';
 }
 function renderResults() {
   const res = document.getElementById("results");
@@ -120,15 +208,28 @@ function renderResults() {
   const totalEdits = rows.reduce((n, r) => n + r.count, 0);
   const firstEver = rows.reduce((a, r) => (r.first < a ? r.first : a), rows[0].first);
   const lastEver = rows.reduce((a, r) => (r.last > a ? r.last : a), rows[0].last);
+  const nominated = rows.filter(r => r.role === "Nominated").length;
+  const voted = rows.filter(r => r.role === "Voted").length;
+  const closedCount = rows.filter(r => r.result && r.result !== "Open").length;
+  const openCount = rows.filter(r => r.result === "Open").length;
+  const closedBy = rows.filter(r => r.closedByUser).length;
+  const resCount = {};
+  rows.forEach(r => { if (r.result && r.result !== "Open") resCount[r.result] = (resCount[r.result] || 0) + 1; });
+  const resLine = Object.keys(resCount).sort().map(k => esc(k) + " " + resCount[k]).join(" &middot; ");
   res.innerHTML =
   '<div class="card"><h2>' + esc(state.user) + ' at AfD</h2>' +
   '<div class="stat-grid">' +
   '<div class="stat"><b>' + rows.length.toLocaleString() + '</b><span>Discussions participated in</span></div>' +
   '<div class="stat"><b>' + totalEdits.toLocaleString() + '</b><span>Edits in those discussions</span></div>' +
+  '<div class="stat"><b>' + nominated.toLocaleString() + '</b><span>Discussions they nominated</span></div>' +
+  '<div class="stat"><b>' + voted.toLocaleString() + '</b><span>Discussions they !voted in</span></div>' +
+  '<div class="stat"><b>' + closedCount.toLocaleString() + '</b><span>Now closed</span></div>' +
+  '<div class="stat"><b>' + openCount.toLocaleString() + '</b><span>Still open</span></div>' +
   '<div class="stat"><b>' + fmtTime(firstEver).split(",")[0] + '</b><span>First AfD edit</span></div>' +
   '<div class="stat"><b>' + fmtTime(lastEver).split(",")[0] + '</b><span>Latest AfD edit</span></div>' +
   '</div>' +
-  '<p class="note" style="margin:10px 0 0">One row per discussion page under ' + esc(AFD_PREFIX) + ', excluding the hub page and the daily log pages. Sorted by most recent activity.</p></div>' +
+  (resLine ? '<p class="note" style="margin:10px 0 0">Results of the closed discussions: ' + resLine + (closedBy ? ' &middot; Closed by this user: ' + closedBy : '') + '</p>' : '') +
+  '<p class="note" style="margin:6px 0 0">One row per discussion page under ' + esc(AFD_PREFIX) + ', excluding the hub page and the daily log pages. Sorted by most recent activity. The result is read from the closure line on the discussion page, and their part from their signed comments: Nominated means they created the discussion, and a !vote is the bold word (Delete, Keep, Redirect and so on) of their signed vote.' + (state.analyzeNote ? ' ' + esc(state.analyzeNote) : '') + '</p></div>' +
   '<div class="card"><h2>Discussions (' + rows.length.toLocaleString() + ')</h2>' +
   '<div style="margin-bottom:8px"><label style="font-size:13px">Show: </label><select id="pgSize" onchange="sizeChange()"><option value="100">100</option><option value="500">500</option><option value="1000">1000</option></select> per page</div>' +
   '<div id="pgTable"></div><div class="pager" id="pgNav"></div></div>';
@@ -143,8 +244,17 @@ function renderTable() {
   const start = state.page * state.size;
   const slice = rows.slice(start, start + state.size);
   document.getElementById("pgTable").innerHTML =
-    '<table><tr><th>Discussion</th><th>Their edits</th><th>First edit</th><th>Last edit</th></tr>' +
-    slice.map(r => '<tr><td><a href="' + pageUrl(r.title) + '" target="_blank" rel="noopener">' + esc(r.title.slice(AFD_PREFIX.length)) + '</a></td><td>' + r.count + '</td><td>' + fmtTime(r.first) + '</td><td>' + fmtTime(r.last) + '</td></tr>').join("") +
+    '<table><tr><th>Discussion</th><th>Result</th><th>Their part</th><th>Their edits</th><th>First edit</th><th>Last edit</th></tr>' +
+    slice.map(r => {
+      let part;
+      if (r.role === "Nominated") part = '<span class="badge nom">Nominated</span>';
+      else if (r.role === "Voted") part = 'Voted: <b>' + esc(r.vote) + '</b>';
+      else if (r.role === "Commented") part = 'Commented';
+      else if (r.role === "Edited") part = 'Edited only';
+      else part = '...';
+      if (r.closedByUser) part += '<span class="chip">Closed by them</span>';
+      return '<tr><td><a href="' + pageUrl(r.title) + '" target="_blank" rel="noopener">' + esc(r.title.slice(AFD_PREFIX.length)) + '</a></td><td>' + resultBadge(r.result) + '</td><td>' + part + '</td><td>' + r.count + '</td><td>' + fmtTime(r.first) + '</td><td>' + fmtTime(r.last) + '</td></tr>';
+    }).join("") +
     '</table>';
   document.getElementById("pgNav").innerHTML =
     '<button onclick="goPage(-1)" ' + (state.page <= 0 ? 'disabled' : '') + '>Previous</button>' +
