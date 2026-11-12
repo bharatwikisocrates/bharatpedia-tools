@@ -358,9 +358,17 @@
           var qs = Object.keys(params).map(function (k) {
             return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
           }).join("&");
-          return fetch(API + "?" + qs + "&format=json&origin=*").then(function (r) {
-            if (!r.ok) throw new Error("API returned HTTP " + r.status);
+          var controller = new AbortController();
+          var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+          return fetch(API + "?" + qs + "&format=json&origin=*", { signal: controller.signal }).then(function (r) {
+            clearTimeout(timeoutId);
+            if (!r.ok) throw new Error("Bharatpedia API error: the API is not responding (HTTP " + r.status + "). Cloudflare may be blocking the API right now, please try again later.");
             return r.json();
+          }).catch(function(err) {
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') throw new Error("Request timed out after 30s - Bharatpedia server is slow");
+            if (err && err.message && err.message.indexOf("Bharatpedia API error") === 0) throw err;
+            throw new Error("Bharatpedia API error: the API is not responding. Cloudflare may be blocking the API right now, please try again later.");
           });
         }
 
@@ -576,7 +584,11 @@
             })
             .catch(function (err) {
               els.status.className = "status-line error";
-              els.status.textContent = "Could not load drafts from Bharatpedia (" + err.message + "). Check your connection and tap Reload list.";
+              var msg = err.message;
+              if (msg === "Failed to fetch" || msg.indexOf("timed out") !== -1) {
+                msg = "API isn't responding";
+              }
+              els.status.textContent = "Could not load drafts from Bharatpedia (" + msg + "). Check your connection and tap Reload list.";
               els.rows.innerHTML = "";
               els.empty.hidden = false;
               els.empty.textContent = "Nothing loaded yet — tap “Reload list” above to try again.";
