@@ -76,33 +76,72 @@ async function find() {
     if (!members.length) { st.textContent = "No articles found in this category."; btn.disabled = false; return; }
     st.textContent = "Checking images for " + members.length + " articles...";
     const gaps = [];
+    let failed = 0;
     // Check pages one by one - batch prop=images queries return wrong results (API quirk)
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
       try {
-        const d = await api({ action: "query", prop: "images", titles: m.title, imlimit: 1, format: "json" });
-        const pages = d.query.pages || {};
-        let hasImage = false;
-        for (const pid in pages) {
-          const pg = pages[pid];
-          const imgs = (pg.images || []).filter(im => !/\.svg$/i.test(im.title));
-          if (imgs.length > 0) { hasImage = true; break; }
-        }
-        // Also get page size
-        const infoD = await api({ action: "query", prop: "info", titles: m.title, inprop: "" });
-        let size = 0;
-        for (const pid2 in (infoD.query.pages || {})) { size = infoD.query.pages[pid2].length || 0; }
-        if (!hasImage) gaps.push({ title: m.title, size: size });
-      } catch (e) { /* skip on error */ }
+        // Read the page's COMPLETE file list (every result page, not just
+        // the first file) plus its size in the same requests. A page is
+        // flagged only when the full list was fetched successfully and
+        // holds no real picture file. SVG icons and audio files do not
+        // count as pictures.
+        let hasImage = false, size = 0, imcontinue = null, complete = false;
+        do {
+          const p = { action: "query", prop: "images|info", titles: m.title, imlimit: 50 };
+          if (imcontinue) p.imcontinue = imcontinue;
+          const d = await api(p);
+          const pages = d.query.pages || {};
+          for (const pid in pages) {
+            const pg = pages[pid];
+            if (pg.length) size = pg.length;
+            for (const im of (pg.images || [])) {
+              if (/\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(im.title)) hasImage = true;
+            }
+          }
+          imcontinue = d.continue && d.continue.imcontinue;
+          if (!imcontinue) complete = true;
+        } while (imcontinue);
+        if (!complete) failed++;
+        else if (!hasImage) gaps.push({ title: m.title, size: size });
+      } catch (e) { failed++; }
       if ((i + 1) % 5 === 0 || i === members.length - 1) {
         st.textContent = "Checked " + (i + 1) + " / " + members.length + ". Gaps so far: " + gaps.length;
       }
       // Rate limit: 40 req/10sec - be gentle
       if ((i + 1) % 10 === 0) await new Promise(r => setTimeout(r, 500));
     }
-    gaps.sort((a, b) => b.size - a.size);
-    st.textContent = gaps.length + " of " + members.length + " articles have no images.";
-    res.innerHTML = gaps.map(g => {
+    // Second, independent check of every flagged page, using the parse
+    // method instead of the query method. A page stays in the results
+    // only when this check also finds no picture. When a page cannot be
+    // verified, or the two checks disagree, the page is left out: the
+    // tool shows no result rather than a wrong one.
+    const verified = [];
+    let unverified = 0;
+    for (let j = 0; j < gaps.length; j++) {
+      const g = gaps[j];
+      st.textContent = "Verifying " + (j + 1) + " / " + gaps.length + " flagged articles...";
+      try {
+        const d = await api({ action: "parse", page: g.title, prop: "images" });
+        const imgs = (d.parse && d.parse.images) || [];
+        const has = imgs.some(im => {
+          const name = typeof im === "string" ? im : (im["*"] || im.title || "");
+          return /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(name);
+        });
+        if (has) unverified++;
+        else verified.push(g);
+      } catch (e) { unverified++; }
+    }
+    if (members.length - failed === 0) {
+      st.textContent = "Error: the API did not answer reliably, so no results are shown.";
+      btn.disabled = false;
+      return;
+    }
+    verified.sort((a, b) => b.size - a.size);
+    st.textContent = verified.length + " of " + members.length + " articles have no images."
+      + (failed ? " " + failed + " could not be checked and were not counted." : "")
+      + (unverified ? " " + unverified + " could not be fully verified and are not shown." : "");
+    res.innerHTML = verified.map(g => {
       const link = "https://en.bharatpedia.org/wiki/" + encodeURIComponent(g.title.replace(/ /g, "_"));
       return `<div class="row"><div><div class="t"><a href="${link}" target="_blank" rel="noopener">${esc(g.title)}</a> <span class="badge">No images</span></div><div class="meta">${fmtSize(g.size)}</div></div></div>`;
     }).join("") || "<p>Every article in this category already has images.</p>";
