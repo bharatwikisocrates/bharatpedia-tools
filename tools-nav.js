@@ -30,7 +30,6 @@
     ["afc-history.html", "AfC Review History"],
     ["sock-checker.html", "Account Overlap"],
     ["page-statistics.html", "Page Statistics"],
-    ["pageviews.html", "Pageviews"],
     ["wikiblame.html", "Find Addition / Removal"],
     ["page-edits-by-user.html", "Edits by User"],
     ["auto-interlinker.html", "Auto Interlinker"],
@@ -42,7 +41,6 @@
   /* Page tools: file, label, URL parameter that carries the page. */
   var PAGE_TOOLS = [
     ["page-statistics.html", "Page Statistics", "title"],
-    ["pageviews.html", "Pageviews", "title"],
     ["wikiblame.html", "Find Addition / Removal", "page"],
     ["page-edits-by-user.html", "Edits by User", "page"],
     ["auto-interlinker.html", "Auto Interlinker", "title"],
@@ -66,7 +64,6 @@
      before the button is pressed automatically. */
   var AUTOFILL = {
     "page-statistics.html": { inputs: { title: ["title", "page"] }, btn: "go", needAll: true },
-    "pageviews.html": { inputs: { title: ["title", "page"] }, btn: "go", needAll: true },
     "dead-link-checker.html": { inputs: { title: ["title", "page"] }, btn: "go", needAll: true },
     "fix-dead-links.html": { inputs: { title: ["title", "page"] }, btn: "go", needAll: true },
     "auto-interlinker.html": { inputs: { title: ["title", "page"] }, btn: "go", needAll: true },
