@@ -36,6 +36,7 @@ button:disabled { opacity: .5; cursor: default; }
 .summary { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; font-size: 14px; }
 .summary span { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -146,5 +147,6 @@ async function scan() {
 }
 document.getElementById("title").addEventListener("keydown", e => { if (e.key === "Enter") scan(); });
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

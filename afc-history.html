@@ -40,6 +40,7 @@ th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
 .pager button { padding: 6px 12px; font-size: 14px; }
 select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 14px; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -223,5 +224,6 @@ document.getElementById("user").addEventListener("keydown", e => { if (e.key ===
   if (u) { document.getElementById("user").value = u; run(); }
 })();
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

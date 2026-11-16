@@ -63,6 +63,7 @@ td.reason { max-width: 280px; word-wrap: break-word; }
 .actions a { margin-right: 8px; font-size: 13px; }
 .empty { text-align: center; padding: 32px 16px; color: var(--ink-soft); }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -234,5 +235,6 @@ function esc(s) {
 document.getElementById("q").addEventListener("keydown", e => { if (e.key === "Enter") render(); });
 load();
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

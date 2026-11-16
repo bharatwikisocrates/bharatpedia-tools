@@ -31,6 +31,7 @@ button:disabled { opacity: .5; }
 .meta { font-size: 13px; color: var(--ink-soft); margin-top: 4px; }
 .note { background: var(--surface-2); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--ink-soft); margin-bottom: 16px; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -119,5 +120,6 @@ async function check() {
 function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 document.getElementById("title").addEventListener("keydown", e => { if (e.key === "Enter") check(); });
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

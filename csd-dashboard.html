@@ -33,6 +33,7 @@ tr:last-child td { border-bottom: none; }
 .age-mid { color: var(--warn); font-weight: 600; }
 .del { font-size: 13px; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -134,5 +135,6 @@ function render() {
 function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

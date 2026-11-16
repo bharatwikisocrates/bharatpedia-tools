@@ -40,6 +40,7 @@ select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; ba
 .badge.nom { background: var(--accent); color: var(--accent-ink); }
 .chip { display: inline-block; margin-left: 6px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: var(--ink-soft); white-space: nowrap; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -301,5 +302,6 @@ document.getElementById("user").addEventListener("keydown", e => { if (e.key ===
   if (u) { document.getElementById("user").value = u; run(); }
 })();
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

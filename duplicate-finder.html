@@ -31,6 +31,7 @@ button:disabled { opacity: .5; cursor: default; }
 .b-low { background: var(--ok-soft); color: var(--ok); }
 .meta { font-size: 13px; color: var(--ink-soft); margin-top: 6px; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -108,5 +109,6 @@ function esc(s) { const d = document.createElement("div"); d.textContent = s; re
 function fmtSize(n) { return n >= 1024 ? (n/1024).toFixed(1) + " KB" : n + " B"; }
 document.getElementById("q").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

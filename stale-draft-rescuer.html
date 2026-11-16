@@ -31,6 +31,7 @@ select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; 
 .bar { height: 6px; background: var(--surface-2); border-radius: 3px; margin-top: 8px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -120,5 +121,6 @@ function esc(s) { const d = document.createElement("div"); d.textContent = s; re
 function fmtSize(n) { return n >= 1024 ? (n/1024).toFixed(1) + " KB" : n + " bytes"; }
 function fmtDate(s) { return new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); }
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

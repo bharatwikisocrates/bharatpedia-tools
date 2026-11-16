@@ -33,6 +33,7 @@ select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; 
 .patrol { margin-top: 8px; font-size: 13px; }
 .patrol label { cursor: pointer; color: var(--ink-soft); }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -111,5 +112,6 @@ function fmtSize(n) { return n >= 1024 ? (n/1024).toFixed(1) + " KB" : n + " byt
 function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
 document.getElementById("hidePatrolled").addEventListener("change", render);
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

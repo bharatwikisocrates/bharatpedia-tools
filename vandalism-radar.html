@@ -36,6 +36,7 @@ select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; 
 .flags span { display: inline-block; background: var(--surface-2); border-radius: 4px; padding: 1px 8px; margin: 2px 4px 2px 0; }
 .links { margin-top: 6px; font-size: 13px; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -120,5 +121,6 @@ async function load() {
 function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 function fmtTime(s) { return new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

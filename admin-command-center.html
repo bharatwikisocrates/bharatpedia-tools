@@ -30,6 +30,7 @@ button:disabled { opacity: .5; }
 .tile.ok .num { color: var(--ok); }
 .updated { margin-top: 18px; font-size: 13px; color: var(--ink-faint); }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -97,5 +98,6 @@ async function refresh(manual) {
 setInterval(() => { if (document.getElementById("auto").checked) refresh(false); }, 60000);
 refresh(false);
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

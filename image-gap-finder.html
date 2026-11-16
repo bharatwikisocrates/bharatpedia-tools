@@ -27,6 +27,7 @@ button:disabled { opacity: .5; }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; background: var(--warn-soft); color: var(--warn); }
 .meta { font-size: 13px; color: var(--ink-soft); }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -112,5 +113,6 @@ function esc(s) { const d = document.createElement("div"); d.textContent = s || 
 function fmtSize(n) { return n >= 1024 ? (n/1024).toFixed(1) + " KB" : n + " bytes"; }
 document.getElementById("cat").addEventListener("keydown", e => { if (e.key === "Enter") find(); });
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>

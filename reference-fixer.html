@@ -42,6 +42,7 @@ textarea{ width:100%; min-height:260px; padding:12px; border:1px solid var(--lin
 .progress{ height:8px; background:var(--surface-2); border-radius:4px; overflow:hidden; margin:10px 0; }
 .progress i{ display:block; height:100%; background:var(--accent); width:0; transition:width .2s; }
 </style>
+<link rel="stylesheet" href="tools-nav.css" />
 </head>
 <body>
 <div class="wrap">
@@ -509,5 +510,6 @@ function openEditor(){
 
 $("title").addEventListener("keydown",e=>{ if(e.key==="Enter") scan(); });
 </script>
+<script src="tools-nav.js"></script>
 </body>
 </html>
