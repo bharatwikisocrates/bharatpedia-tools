@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Automated Edits Counter - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --danger: #b3261e; --danger-soft: #fbe7e5; --ok: #1e7a3c; --ok-soft: #e2f3e6; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --danger: #f0837c; --danger-soft: #3d1f1d; --ok: #5cc47c; --ok-soft: #1d3626; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; }
+input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.card h2 { margin: 0 0 12px; font-size: 18px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 6px; }
+.stat { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; }
+.stat b { display: block; font-size: 22px; }
+.stat span { font-size: 12px; color: var(--ink-soft); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
+.note { font-size: 13px; color: var(--ink-soft); }
+</style>
+<link rel="stylesheet" href="tools-nav.css" />
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Automated Edits Counter</h1>
+<p class="sub">Counts a user's mainspace edits on Bharatpedia and separates the automated ones (made with tools such as AWB, Twinkle, HotCat or Cat-a-lot) from the non-automated ones. This is the count asked for on the AutoWikiBrowser access request page.</p>
+<div class="controls">
+<input type="text" id="user" placeholder="Enter username" />
+<button id="go" onclick="run()">Count edits</button>
+</div>
+<div class="status" id="status"></div>
+<div id="results"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const WIKI = "https://en.bharatpedia.org/wiki/";
+const MAX_COUNT = 50000;
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  let r;
+  try {
+    r = await fetch(url);
+  } catch (e) {
+    throw new Error("Bharatpedia API error: the API is not responding. Cloudflare may be blocking the API right now, please try again later.");
+  }
+  if (!r.ok) throw new Error("Bharatpedia API error: the API is not responding (HTTP " + r.status + "). Cloudflare may be blocking the API right now, please try again later.");
+  try {
+    return await r.json();
+  } catch (e) {
+    throw new Error("Bharatpedia API error: the API is not responding (HTTP " + r.status + "). Cloudflare may be blocking the API right now, please try again later.");
+  }
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtDate(s) { return s ? new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : ""; }
+/* A mainspace edit counts as automated when its edit summary carries a known
+   tool signature, or it carries the find-and-replace tag. */
+const SIGNATURES = [
+  [/\(\s*AWB\s*\)|using AWB|AutoWikiBrowser/i, "AWB"],
+  [/\(\s*TW\s*\)|Twinkle/i, "Twinkle"],
+  [/Cat-a-lot/i, "Cat-a-lot"],
+  [/HotCat/i, "HotCat"],
+  [/WPCleaner/i, "WPCleaner"],
+  [/\(\s*JWB\s*\)|\bJWB\b/i, "JWB"]
+];
+function detectTool(c) {
+  const comment = c.comment || "";
+  for (const [rx, name] of SIGNATURES) { if (rx.test(comment)) return name; }
+  if ((c.tags || []).indexOf("mw-replace") !== -1) return "Find and replace";
+  return null;
+}
+async function run() {
+  const user = document.getElementById("user").value.trim();
+  const status = document.getElementById("status");
+  const results = document.getElementById("results");
+  const btn = document.getElementById("go");
+  results.innerHTML = "";
+  if (!user) { status.textContent = "Enter a username first."; return; }
+  btn.disabled = true;
+  status.textContent = "Looking up " + user + "...";
+  try {
+    const u = await api({ action: "query", list: "users", ususers: user, usprop: "editcount|registration|groups" });
+    const info = (u.query.users || [])[0];
+    if (!info || info.missing !== undefined) { status.textContent = "No user named \"" + user + "\" on Bharatpedia."; btn.disabled = false; return; }
+    let total = 0, auto = 0, capped = false;
+    const byTool = {};
+    let cont = {};
+    while (true) {
+      const p = Object.assign({ action: "query", list: "usercontribs", ucuser: info.name, ucnamespace: "0", ucprop: "ids|tags|comment", uclimit: "500" }, cont);
+      const r = await api(p);
+      const list = r.query.usercontribs || [];
+      for (const c of list) {
+        total++;
+        const t = detectTool(c);
+        if (t) { auto++; byTool[t] = (byTool[t] || 0) + 1; }
+      }
+      status.textContent = "Counting mainspace edits of " + info.name + ": " + total.toLocaleString() + " so far...";
+      if (r.continue && total < MAX_COUNT) { cont = r.continue; }
+      else { capped = !!(r.continue && total >= MAX_COUNT); break; }
+    }
+    const nonAuto = total - auto;
+    const pct = total ? (100 * auto / total).toFixed(1) : "0.0";
+    let h = '<div class="card"><h2>' + esc(info.name) + '</h2>';
+    h += '<div class="stat-grid">';
+    h += '<div class="stat"><b>' + (info.editcount || 0).toLocaleString() + '</b><span>Total edits (all namespaces)</span></div>';
+    h += '<div class="stat"><b>' + total.toLocaleString() + '</b><span>Mainspace edits</span></div>';
+    h += '<div class="stat"><b>' + nonAuto.toLocaleString() + '</b><span>Non-automated mainspace edits</span></div>';
+    h += '<div class="stat"><b>' + auto.toLocaleString() + '</b><span>Automated mainspace edits (' + pct + '%)</span></div>';
+    h += '</div>';
+    h += '<p class="note">Registered: ' + esc(fmtDate(info.registration)) + ' &middot; Groups: ' + esc((info.groups || []).join(", ")) + ' &middot; <a href="' + WIKI + 'Special:Contributions/' + encodeURIComponent(info.name.replace(/ /g, "_")) + '" target="_blank" rel="noopener">Contributions on Bharatpedia</a></p>';
+    if (capped) h += '<p class="note">Note: this user has more than ' + MAX_COUNT.toLocaleString() + ' mainspace edits. The counts above cover the most recent ' + MAX_COUNT.toLocaleString() + ' only.</p>';
+    h += '</div>';
+    const tools = Object.keys(byTool).sort((a, b) => byTool[b] - byTool[a]);
+    if (tools.length) {
+      h += '<div class="card"><h2>Automated edits by tool</h2><table><tr><th>Tool</th><th>Mainspace edits</th></tr>';
+      for (const t of tools) h += '<tr><td>' + esc(t) + '</td><td>' + byTool[t].toLocaleString() + '</td></tr>';
+      h += '</table></div>';
+    } else {
+      h += '<div class="card"><h2>Automated edits by tool</h2><p class="note">No automated mainspace edits found for this user.</p></div>';
+    }
+    h += '<p class="note">How this works: every mainspace edit is read through the Bharatpedia API. An edit counts as automated when its edit summary carries a known tool signature (AWB, Twinkle, Cat-a-lot, HotCat, WPCleaner, JWB) or the find-and-replace tag. Edits made by hand, and gadget edits that leave no signature in the summary, count as non-automated.</p>';
+    results.innerHTML = h;
+    status.textContent = "";
+  } catch (e) {
+    status.textContent = e.message;
+  }
+  btn.disabled = false;
+}
+document.getElementById("user").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+(function () {
+  const q = new URLSearchParams(location.search);
+  const u = (q.get("user") || q.get("username") || "").trim();
+  if (u) { document.getElementById("user").value = u; run(); }
+})();
+</script>
+<script src="tools-nav.js"></script>
+</body>
+</html>
