@@ -27,6 +27,7 @@
     ["image-gap-finder.html", "Image Gap Finder"],
     ["user-contributions-analyzer.html", "User Contributions"],
     ["afd-stats.html", "AfD Statistics"],
+     ["autoedits.html", "Automated Edits"],
     ["afc-history.html", "AfC Review History"],
     ["sock-checker.html", "Account Overlap"],
     ["page-statistics.html", "Page Statistics"],
@@ -52,7 +53,9 @@
   /* User tools: file, label, URL parameter that carries the user. */
   var USER_TOOLS = [
     ["user-contributions-analyzer.html", "User Contributions", "user"],
+   
     ["afd-stats.html", "AfD Statistics", "user"],
+     ["autoedits.html", "Automated Edits", "user"],
     ["afc-history.html", "AfC Review History", "user"],
     ["page-edits-by-user.html", "Edits by User", "user"],
     ["sock-checker.html", "Account Overlap", "user"]
