@@ -124,18 +124,62 @@ function detectVote(firstLine) {
   }
   return qual ? niceWord(qual) + " " + w : niceWord(w);
 }
+const RESULT_WORDS = ["procedural close", "speedy delete", "speedy keep", "no consensus", "soft delete", "snow delete", "snow keep", "withdrawal", "withdrawn", "redirect", "transwiki", "draftify", "userfy", "delete", "merge", "keep", "move", "rename", "withdraw"];
+function cleanResult(raw) {
+  let s = (raw || "").replace(/'/g, "").trim();
+  let target = "";
+  const tm = /\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/.exec(s);
+  if (tm) target = tm[1].trim();
+  s = s.replace(/\[\[[^\]]*\]\]/g, " ").replace(/\s+/g, " ").trim();
+  if (!s) return null;
+  const low = s.toLowerCase();
+  for (const w of RESULT_WORDS) {
+    if (low === w || low.startsWith(w + " ") || low.startsWith(w + ".") || low.startsWith(w + ",")) {
+      let label = niceWord(w);
+      if (target && (w === "redirect" || w === "merge" || w === "move" || w === "rename")) {
+        label += (w === "merge" ? " into " : " to ") + target;
+      }
+      return label;
+    }
+  }
+  let fb = s.split(".")[0].trim();
+  if (!fb) return null;
+  if (fb.length > 40) fb = fb.slice(0, 40).trim();
+  return niceWord(fb.toLowerCase());
+}
+function findResult(text) {
+  const m = /The result(?: of the (?:discussion|debate))? was\s*'+/i.exec(text);
+  if (m) {
+    const start = m.index + m[0].length;
+    const rest = text.slice(start, start + 600);
+    const end = rest.indexOf("'");
+    if (end > 0) {
+      const r = cleanResult(rest.slice(0, end));
+      if (r) return { result: r, index: m.index };
+    }
+    const r2 = cleanResult(rest.split("\n")[0].split(". ")[0]);
+    if (r2) return { result: r2, index: m.index };
+  }
+  const tm = /\{\{\s*(?:subst:\s*)?Afd top\s*\|\s*(?:1\s*=|result\s*=)?\s*([^|{}]{1,80}?)\s*(?:\||\}\})/i.exec(text);
+  if (tm) {
+    const r = cleanResult(tm[1]);
+    if (r) return { result: r, index: tm.index };
+  }
+  return null;
+}
 function parseResult(text) {
-  const m = /The result (?:of the discussion )?was '''([^']+)'''/i.exec(text);
-  if (m) return niceWord(m[1].trim().toLowerCase());
+  const found = findResult(text);
+  if (found) return found.result;
   if (text.indexOf("xfd-closed") !== -1 || /The above discussion is preserved as an archive/i.test(text)) return "Closed";
   return "Open";
 }
 function analyzeDiscussion(text, isCreator, user) {
   const out = { result: parseResult(text), closer: null, vote: null, commented: false, closedByUser: false };
   const sig = sigRegex(user);
-  const rm = /The result (?:of the discussion )?was '''[^']+'''/i.exec(text);
-  if (rm) {
-    const closer = userFromSig(text, rm.index);
+  const found = findResult(text);
+  if (found) {
+    const sigM = /\[\[User:([^\]|#]+)/.exec(text.slice(found.index, found.index + 2500));
+    const closer = sigM ? sigM[1].replace(/_/g, " ").trim() : null;
     if (closer) { out.closer = closer; out.closedByUser = closer.toLowerCase() === user.trim().toLowerCase(); }
   }
   const lines = text.split("\n");
@@ -150,7 +194,7 @@ function analyzeDiscussion(text, isCreator, user) {
     }
     const block = lines.slice(j, i + 1).join("\n");
     if (/delsort-notice/i.test(block)) return;
-    if (/The result (?:of the discussion )?was/i.test(block)) return;
+    if (/The result(?: of the (?:discussion|debate))? was/i.test(block)) return;
     if (/Creating deletion discussion/i.test(block) && isCreator) return;
     out.commented = true;
     const v = detectVote(lines[j]);
