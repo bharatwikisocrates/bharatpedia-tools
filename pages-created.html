@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>Pages Created - Bharatpedia Admin Tools</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f5f0; --surface: #fff; --surface-2: #f0ede6; --ink: #1c2430; --ink-soft: #4c5866; --ink-faint: #77828f; --line: #ddd8cc; --accent: #b3540a; --accent-ink: #fff; --danger: #b3261e; --danger-soft: #fbe7e5; --ok: #1e7a3c; --ok-soft: #e2f3e6; --shadow: 0 1px 2px rgba(28,36,48,.06), 0 4px 14px rgba(28,36,48,.05); }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --surface: #1d222a; --surface-2: #262c36; --ink: #e8ebef; --ink-soft: #b3bcc7; --ink-faint: #828e9c; --line: #343c48; --accent: #e08a3c; --accent-ink: #1c1408; --danger: #f0837c; --danger-soft: #3d1f1d; --ok: #5cc47c; --ok-soft: #1d3626; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.25); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+a { color: var(--accent); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 56px; }
+.back { display: inline-block; margin-bottom: 16px; font-size: 14px; text-decoration: none; }
+h1 { font-family: Georgia, serif; font-size: clamp(24px, 4vw, 32px); margin: 0 0 8px; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; }
+.controls { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); display: flex; gap: 10px; flex-wrap: wrap; }
+input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; background: var(--surface); color: var(--ink); }
+select { padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; background: var(--surface); color: var(--ink); }
+button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; }
+button.ghost { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); }
+.status { margin: 12px 0; color: var(--ink-soft); font-size: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.card h2 { margin: 0 0 12px; font-size: 18px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 6px; }
+.stat { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; }
+.stat b { display: block; font-size: 22px; }
+.stat span { font-size: 12px; color: var(--ink-soft); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--ink-soft); font-weight: 600; font-size: 13px; }
+.note { font-size: 13px; color: var(--ink-soft); }
+.bar-row { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: 13px; }
+.bar-row .lbl { flex: 0 0 170px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .bar { flex: 1; background: var(--surface-2); border-radius: 4px; height: 12px; overflow: hidden; }
+.bar-row .bar i { display: block; height: 100%; background: var(--accent); }
+.bar-row .val { flex: 0 0 64px; text-align: right; }
+.pager { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; font-size: 14px; color: var(--ink-soft); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.b-live { background: var(--ok-soft); color: var(--ok); }
+.b-redir { background: var(--surface-2); color: var(--ink-soft); }
+.b-gone { background: var(--danger-soft); color: var(--danger); }
+.filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 14px; color: var(--ink-soft); }
+</style>
+<link rel="stylesheet" href="tools-nav.css" />
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">&larr; All tools</a>
+<h1>Pages Created</h1>
+<p class="sub">Every page a user has created on Bharatpedia, with a detailed analysis of their editing: namespaces, top pages, activity pattern and automated edits.</p>
+<div class="controls">
+<input type="text" id="user" placeholder="Enter username" />
+<button id="go" onclick="run()">Analyse</button>
+</div>
+<div class="status" id="status"></div>
+<div id="results"></div>
+</div>
+<script>
+const API = "https://en.bharatpedia.org/w/api.php";
+const WIKI = "https://en.bharatpedia.org/wiki/";
+const MAX_EDITS = 5000;
+async function api(params) {
+  const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
+  let r;
+  try {
+    r = await fetch(url);
+  } catch (e) {
+    throw new Error("Bharatpedia API error: the API is not responding. Cloudflare may be blocking the API right now, please try again later.");
+  }
+  if (!r.ok) throw new Error("Bharatpedia API error: the API is not responding (HTTP " + r.status + "). Cloudflare may be blocking the API right now, please try again later.");
+  try {
+    return await r.json();
+  } catch (e) {
+    throw new Error("Bharatpedia API error: the API is not responding (HTTP " + r.status + "). Cloudflare may be blocking the API right now, please try again later.");
+  }
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function fmtDate(s) { return s ? new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : ""; }
+function fmtDT(s) { return s ? new Date(s).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""; }
+const TAG_TOOLS = [
+  ["bharatmitra", "BharatMitra"],
+  ["twinkle", "Twinkle"],
+  ["xfdcloser", "XFDcloser"]
+];
+const SIGNATURES = [
+  [/\(\s*AWB\s*\)|using AWB|AutoWikiBrowser/i, "AWB"],
+  [/\(\s*TW\s*\)|Twinkle|\[\[BP:TW\|TW\]\]/i, "Twinkle"],
+  [/Cat-a-lot/i, "Cat-a-lot"],
+  [/HotCat/i, "HotCat"],
+  [/WPCleaner/i, "WPCleaner"],
+  [/\(\s*JWB\s*\)|\bJWB\b/i, "JWB"]
+];
+function detectTool(c) {
+  const tags = c.tags || [];
+  for (const [tag, name] of TAG_TOOLS) { if (tags.indexOf(tag) !== -1) return name; }
+  const comment = c.comment || "";
+  for (const [rx, name] of SIGNATURES) { if (rx.test(comment)) return name; }
+  if (tags.indexOf("mw-replace") !== -1) return "Find and replace";
+  return null;
+}
+let NSNAMES = { 0: "Mainspace (articles)" };
+async function loadNamespaces() {
+  try {
+    const d = await api({ action: "query", meta: "siteinfo", siprop: "namespaces" });
+    const ns = d.query.namespaces || {};
+    for (const k of Object.keys(ns)) {
+      const id = parseInt(k, 10);
+      if (id < 0) continue;
+      NSNAMES[id] = id === 0 ? "Mainspace (articles)" : (ns[k]["*"] || ns[k].canonical || ("Namespace " + id));
+    }
+  } catch (e) { /* keep defaults */ }
+}
+function nsName(id) { return NSNAMES[id] || ("Namespace " + id); }
+
+let STATE = null;
+async function run() {
+  const user = document.getElementById("user").value.trim();
+  const status = document.getElementById("status");
+  const results = document.getElementById("results");
+  const btn = document.getElementById("go");
+  results.innerHTML = "";
+  if (!user) { status.textContent = "Enter a username first."; return; }
+  btn.disabled = true;
+  status.textContent = "Looking up " + user + "...";
+  try {
+    await loadNamespaces();
+    const u = await api({ action: "query", list: "users", ususers: user, usprop: "editcount|registration|groups|blockinfo" });
+    const info = (u.query.users || [])[0];
+    if (!info || info.missing !== undefined) { status.textContent = "No user named \"" + user + "\" on Bharatpedia."; btn.disabled = false; return; }
+    const contribs = [];
+    let cont = {}, capped = false;
+    while (true) {
+      const p = Object.assign({ action: "query", list: "usercontribs", ucuser: info.name, ucprop: "ids|title|timestamp|comment|sizediff|flags|tags", uclimit: "500" }, cont);
+      const r = await api(p);
+      const list = r.query.usercontribs || [];
+      for (const c of list) contribs.push(c);
+      status.textContent = "Reading edits of " + info.name + ": " + contribs.length.toLocaleString() + " so far...";
+      if (r.continue && contribs.length < MAX_EDITS) { cont = r.continue; }
+      else { capped = !!r.continue; break; }
+    }
+    // Pages created: newest creation per title
+    const createdMap = {};
+    for (const c of contribs) {
+      if (c.new !== undefined && !createdMap[c.title]) {
+        createdMap[c.title] = { title: c.title, ns: c.ns, timestamp: c.timestamp, size: Math.max(0, c.sizediff || 0), revid: c.revid };
+      }
+    }
+    const created = Object.values(createdMap);
+    // Current status of each created page, in batches of 50
+    const statusByTitle = {};
+    for (let i = 0; i < created.length; i += 50) {
+      const batch = created.slice(i, i + 50).map(x => x.title);
+      const d = await api({ action: "query", prop: "info", titles: batch.join("|") });
+      const pages = (d.query && d.query.pages) || {};
+      for (const pid of Object.keys(pages)) {
+        const pg = pages[pid];
+        statusByTitle[pg.title] = pg.missing !== undefined ? "gone" : (pg.redirect !== undefined ? "redir" : "live");
+      }
+      if (created.length > 50) status.textContent = "Checking the created pages: " + Math.min(i + 50, created.length) + " of " + created.length + "...";
+    }
+    for (const cp of created) cp.status = statusByTitle[cp.title] || "live";
+    STATE = { info, contribs, created, capped };
+    render();
+    status.textContent = "";
+  } catch (e) {
+    status.textContent = e.message;
+  }
+  btn.disabled = false;
+}
+
+let createdFilter = -1, createdPage = 0, createdPerPage = 100;
+function render() {
+  const { info, contribs, created, capped } = STATE;
+  const results = document.getElementById("results");
+  let h = "";
+  // Overview
+  const mainCreated = created.filter(x => x.ns === 0);
+  const liveCreated = created.filter(x => x.status === "live");
+  const first = created.length ? created[created.length - 1] : null;
+  const last = created.length ? created[0] : null;
+  h += '<div class="card"><h2>' + esc(info.name) + '</h2><div class="stat-grid">';
+  h += '<div class="stat"><b>' + (info.editcount || 0).toLocaleString() + '</b><span>Total edits (account)</span></div>';
+  h += '<div class="stat"><b>' + created.length.toLocaleString() + '</b><span>Pages created</span></div>';
+  h += '<div class="stat"><b>' + mainCreated.length.toLocaleString() + '</b><span>Articles created (mainspace)</span></div>';
+  h += '<div class="stat"><b>' + liveCreated.length.toLocaleString() + '</b><span>Created pages still live</span></div>';
+  h += '<div class="stat"><b>' + contribs.length.toLocaleString() + '</b><span>Edits analysed</span></div>';
+  h += '<div class="stat"><b>' + esc(fmtDate(info.registration)) + '</b><span>Registered</span></div>';
+  h += '</div>';
+  h += '<p class="note">Groups: ' + esc((info.groups || []).join(", ") || "user") + (info.blockid ? ' &middot; <b>Currently blocked</b>' : '') + ' &middot; <a href="' + WIKI + 'Special:Contributions/' + encodeURIComponent(info.name.replace(/ /g, "_")) + '" target="_blank" rel="noopener">Contributions on Bharatpedia</a></p>';
+  if (first) h += '<p class="note">First page created: <a href="' + WIKI + encodeURIComponent(first.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(first.title) + '</a> (' + esc(fmtDate(first.timestamp)) + ') &middot; Most recent: <a href="' + WIKI + encodeURIComponent(last.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(last.title) + '</a> (' + esc(fmtDate(last.timestamp)) + ')</p>';
+  if (capped) h += '<p class="note">Note: this user has more than ' + MAX_EDITS.toLocaleString() + ' edits. The analysis below covers the most recent ' + MAX_EDITS.toLocaleString() + ' edits only, so pages created earlier are not listed.</p>';
+  h += '</div>';
+  // Created by namespace
+  const cByNs = {};
+  for (const cp of created) cByNs[cp.ns] = (cByNs[cp.ns] || 0) + 1;
+  const cNsSorted = Object.keys(cByNs).map(Number).sort((a, b) => cByNs[b] - cByNs[a]);
+  if (created.length) {
+    h += '<div class="card"><h2>Pages created by namespace</h2>';
+    const maxC = Math.max(1, ...cNsSorted.map(id => cByNs[id]));
+    for (const id of cNsSorted) {
+      h += '<div class="bar-row"><span class="lbl">' + esc(nsName(id)) + '</span><span class="bar"><i style="width:' + Math.round(100 * cByNs[id] / maxC) + '%"></i></span><span class="val">' + cByNs[id].toLocaleString() + '</span></div>';
+    }
+    h += '</div>';
+  }
+  // Created pages list
+  h += '<div class="card"><h2>Pages created (<span id="createdCount"></span>)</h2>';
+  h += '<div class="filterbar"><label for="nsFilter">Namespace:</label><select id="nsFilter"><option value="-1">All namespaces</option>';
+  for (const id of cNsSorted) h += '<option value="' + id + '">' + esc(nsName(id)) + ' (' + cByNs[id] + ')</option>';
+  h += '</select><label for="perPage">Per page:</label><select id="perPage"><option value="100">100</option><option value="500">500</option><option value="1000">1000</option></select></div>';
+  h += '<div id="createdTable"></div><div class="pager" id="createdPager"></div></div>';
+  // Edit analysis
+  const eByNs = {}, topPages = {}, months = {}, hours = new Array(24).fill(0);
+  let withSummary = 0, auto = 0, bytesPlus = 0, bytesMinus = 0;
+  const byTool = {};
+  for (const c of contribs) {
+    eByNs[c.ns] = (eByNs[c.ns] || 0) + 1;
+    topPages[c.title] = (topPages[c.title] || 0) + 1;
+    const mk = (c.timestamp || "").slice(0, 7);
+    if (mk) months[mk] = (months[mk] || 0) + 1;
+    const hr = new Date(c.timestamp).getUTCHours();
+    if (!isNaN(hr)) hours[hr]++;
+    if (c.comment && c.comment.trim()) withSummary++;
+    const t = detectTool(c);
+    if (t) { auto++; byTool[t] = (byTool[t] || 0) + 1; }
+    const sd = c.sizediff || 0;
+    if (sd > 0) bytesPlus += sd; else bytesMinus += -sd;
+  }
+  h += '<div class="card"><h2>Edit analysis</h2>';
+  h += '<div class="stat-grid">';
+  h += '<div class="stat"><b>' + (contribs.length ? (100 * withSummary / contribs.length).toFixed(1) : "0") + '%</b><span>Edits with a summary</span></div>';
+  h += '<div class="stat"><b>' + auto.toLocaleString() + '</b><span>Automated edits</span></div>';
+  h += '<div class="stat"><b>' + (contribs.length - auto).toLocaleString() + '</b><span>Non-automated edits</span></div>';
+  h += '<div class="stat"><b>+' + bytesPlus.toLocaleString() + '</b><span>Bytes added</span></div>';
+  h += '<div class="stat"><b>-' + bytesMinus.toLocaleString() + '</b><span>Bytes removed</span></div>';
+  h += '</div>';
+  const eNsSorted = Object.keys(eByNs).map(Number).sort((a, b) => eByNs[b] - eByNs[a]);
+  const maxE = Math.max(1, ...eNsSorted.map(id => eByNs[id]));
+  h += '<h3 style="margin:16px 0 6px;font-size:15px">Edits by namespace</h3>';
+  for (const id of eNsSorted.slice(0, 12)) {
+    h += '<div class="bar-row"><span class="lbl">' + esc(nsName(id)) + '</span><span class="bar"><i style="width:' + Math.round(100 * eByNs[id] / maxE) + '%"></i></span><span class="val">' + eByNs[id].toLocaleString() + '</span></div>';
+  }
+  const top = Object.entries(topPages).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  h += '<h3 style="margin:16px 0 6px;font-size:15px">Top edited pages</h3><table><tr><th>Page</th><th>Edits</th></tr>';
+  for (const [t, n] of top) h += '<tr><td><a href="' + WIKI + encodeURIComponent(t.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(t) + '</a></td><td>' + n.toLocaleString() + '</td></tr>';
+  h += '</table>';
+  const mKeys = Object.keys(months).sort().slice(-12);
+  if (mKeys.length) {
+    const maxM = Math.max(1, ...mKeys.map(k => months[k]));
+    h += '<h3 style="margin:16px 0 6px;font-size:15px">Monthly activity (last 12 active months)</h3>';
+    for (const k of mKeys) {
+      const label = new Date(k + "-02T00:00:00Z").toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+      h += '<div class="bar-row"><span class="lbl">' + esc(label) + '</span><span class="bar"><i style="width:' + Math.round(100 * months[k] / maxM) + '%"></i></span><span class="val">' + months[k].toLocaleString() + '</span></div>';
+    }
+  }
+  const maxH = Math.max(1, ...hours);
+  h += '<h3 style="margin:16px 0 6px;font-size:15px">Most active hours (UTC)</h3>';
+  for (let hr = 0; hr < 24; hr++) {
+    if (!hours[hr]) continue;
+    h += '<div class="bar-row"><span class="lbl">' + String(hr).padStart(2, "0") + ':00</span><span class="bar"><i style="width:' + Math.round(100 * hours[hr] / maxH) + '%"></i></span><span class="val">' + hours[hr].toLocaleString() + '</span></div>';
+  }
+  const tools = Object.keys(byTool).sort((a, b) => byTool[b] - byTool[a]);
+  if (tools.length) {
+    h += '<h3 style="margin:16px 0 6px;font-size:15px">Automated edits by tool</h3><table><tr><th>Tool</th><th>Edits</th></tr>';
+    for (const t of tools) h += '<tr><td>' + esc(t) + '</td><td>' + byTool[t].toLocaleString() + '</td></tr>';
+    h += '</table>';
+  }
+  h += '</div>';
+  h += '<p class="note">How this works: the user\'s edits are read through the Bharatpedia API (up to the most recent ' + MAX_EDITS.toLocaleString() + '). A page counts as created by the user when their edit carries the "new page" flag. Page status (live, redirect, deleted or moved) is checked against the current wiki. An edit counts as automated when it carries a gadget tag (BharatMitra, Twinkle, XFDcloser), a known tool signature in its summary (AWB, Twinkle, Cat-a-lot, HotCat, WPCleaner, JWB), or the find-and-replace tag.</p>';
+  results.innerHTML = h;
+  const sel = document.getElementById("nsFilter");
+  sel.value = String(createdFilter);
+  sel.addEventListener("change", () => { createdFilter = parseInt(sel.value, 10); createdPage = 0; renderCreated(); });
+  const pp = document.getElementById("perPage");
+  pp.value = String(createdPerPage);
+  pp.addEventListener("change", () => { createdPerPage = parseInt(pp.value, 10); createdPage = 0; renderCreated(); });
+  renderCreated();
+}
+function renderCreated() {
+  const { created } = STATE;
+  const list = createdFilter === -1 ? created : created.filter(x => x.ns === createdFilter);
+  document.getElementById("createdCount").textContent = list.length.toLocaleString();
+  const pages = Math.max(1, Math.ceil(list.length / createdPerPage));
+  if (createdPage >= pages) createdPage = pages - 1;
+  const slice = list.slice(createdPage * createdPerPage, (createdPage + 1) * createdPerPage);
+  let h = '<table><tr><th>Page</th><th>Namespace</th><th>Created on</th><th>Size at creation</th><th>Status now</th></tr>';
+  for (const cp of slice) {
+    const badge = cp.status === "live" ? '<span class="badge b-live">Live</span>' : (cp.status === "redir" ? '<span class="badge b-redir">Redirect</span>' : '<span class="badge b-gone">Deleted / moved</span>');
+    h += '<tr><td><a href="' + WIKI + encodeURIComponent(cp.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(cp.title) + '</a></td><td>' + esc(nsName(cp.ns)) + '</td><td>' + esc(fmtDT(cp.timestamp)) + '</td><td>' + cp.size.toLocaleString() + ' bytes</td><td>' + badge + '</td></tr>';
+  }
+  if (!slice.length) h += '<tr><td colspan="5">No pages found.</td></tr>';
+  h += '</table>';
+  document.getElementById("createdTable").innerHTML = h;
+  const pager = document.getElementById("createdPager");
+  pager.innerHTML = '<button class="ghost" id="pgPrev"' + (createdPage === 0 ? ' disabled' : '') + '>Previous</button>' +
+    '<span>Page ' + (createdPage + 1) + ' of ' + pages + '</span>' +
+    '<button class="ghost" id="pgNext"' + (createdPage >= pages - 1 ? ' disabled' : '') + '>Next</button>';
+  const prev = document.getElementById("pgPrev"), next = document.getElementById("pgNext");
+  if (prev) prev.addEventListener("click", () => { if (createdPage > 0) { createdPage--; renderCreated(); } });
+  if (next) next.addEventListener("click", () => { createdPage++; renderCreated(); });
+}
+document.getElementById("user").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+(function () {
+  const q = new URLSearchParams(location.search);
+  const u = (q.get("user") || q.get("username") || "").trim();
+  const ns = q.get("ns");
+  if (ns !== null && !isNaN(parseInt(ns, 10))) createdFilter = parseInt(ns, 10);
+  if (u) { document.getElementById("user").value = u; run(); }
+})();
+</script>
+<script src="tools-nav.js"></script>
+</body>
+</html>
