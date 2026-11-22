@@ -183,14 +183,14 @@ function render() {
   const first = created.length ? created[created.length - 1] : null;
   const last = created.length ? created[0] : null;
   h += '<div class="card"><h2>' + esc(info.name) + '</h2><div class="stat-grid">';
-  h += '<div class="stat"><b>' + (info.editcount || 0).toLocaleString() + '</b><span>Total edits (account)</span></div>';
+  h += '<div class="stat"><b>' + ((typeof info.editcount === "number" ? info.editcount : contribs.length) || 0).toLocaleString() + (typeof info.editcount !== "number" && capped ? "+" : "") + '</b><span>Total edits' + (typeof info.editcount !== "number" ? " (from edits analysed)" : " (account)") + '</span></div>';
   h += '<div class="stat"><b>' + created.length.toLocaleString() + '</b><span>Pages created</span></div>';
   h += '<div class="stat"><b>' + mainCreated.length.toLocaleString() + '</b><span>Articles created (mainspace)</span></div>';
   h += '<div class="stat"><b>' + liveCreated.length.toLocaleString() + '</b><span>Created pages still live</span></div>';
   h += '<div class="stat"><b>' + contribs.length.toLocaleString() + '</b><span>Edits analysed</span></div>';
   h += '<div class="stat"><b>' + esc(fmtDate(info.registration)) + '</b><span>Registered</span></div>';
   h += '</div>';
-  h += '<p class="note">Groups: ' + esc((info.groups || []).join(", ") || "user") + (info.blockid ? ' &middot; <b>Currently blocked</b>' : '') + ' &middot; <a href="' + WIKI + 'Special:Contributions/' + encodeURIComponent(info.name.replace(/ /g, "_")) + '" target="_blank" rel="noopener">Contributions on Bharatpedia</a></p>';
+  h += '<p class="note">Groups: ' + esc(info.invalid !== undefined ? "anonymous (IP)" : ((info.groups || []).join(", ") || "user")) + (info.blockid ? ' &middot; <b>Currently blocked</b>' : '') + ' &middot; <a href="' + WIKI + 'Special:Contributions/' + encodeURIComponent(info.name.replace(/ /g, "_")) + '" target="_blank" rel="noopener">Contributions on Bharatpedia</a></p>';
   if (first) h += '<p class="note">First page created: <a href="' + WIKI + encodeURIComponent(first.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(first.title) + '</a> (' + esc(fmtDate(first.timestamp)) + ') &middot; Most recent: <a href="' + WIKI + encodeURIComponent(last.title.replace(/ /g, "_")) + '" target="_blank" rel="noopener">' + esc(last.title) + '</a> (' + esc(fmtDate(last.timestamp)) + ')</p>';
   if (capped) h += '<p class="note">Note: this user has more than ' + MAX_EDITS.toLocaleString() + ' edits. The analysis below covers the most recent ' + MAX_EDITS.toLocaleString() + ' edits only, so pages created earlier are not listed.</p>';
   h += '</div>';

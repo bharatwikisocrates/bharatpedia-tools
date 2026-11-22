@@ -67,20 +67,29 @@ async function api(params) {
 }
 function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 function fmtDate(s) { return s ? new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : ""; }
-/* A mainspace edit counts as automated when its edit summary carries a known
-   tool signature, or it carries the find-and-replace tag. */
+/* A mainspace edit counts as automated when it carries a gadget tag
+   (BharatMitra, Twinkle and XFDcloser tag their own edits), or its edit
+   summary carries a known tool signature, or it carries the
+   find-and-replace tag. Tags are checked first: they are exact. */
+const TAG_TOOLS = [
+  ["bharatmitra", "BharatMitra"],
+  ["twinkle", "Twinkle"],
+  ["xfdcloser", "XFDcloser"]
+];
 const SIGNATURES = [
   [/\(\s*AWB\s*\)|using AWB|AutoWikiBrowser/i, "AWB"],
-  [/\(\s*TW\s*\)|Twinkle/i, "Twinkle"],
+  [/\(\s*TW\s*\)|Twinkle|\[\[BP:TW\|TW\]\]/i, "Twinkle"],
   [/Cat-a-lot/i, "Cat-a-lot"],
   [/HotCat/i, "HotCat"],
   [/WPCleaner/i, "WPCleaner"],
   [/\(\s*JWB\s*\)|\bJWB\b/i, "JWB"]
 ];
 function detectTool(c) {
+  const tags = c.tags || [];
+  for (const [tag, name] of TAG_TOOLS) { if (tags.indexOf(tag) !== -1) return name; }
   const comment = c.comment || "";
   for (const [rx, name] of SIGNATURES) { if (rx.test(comment)) return name; }
-  if ((c.tags || []).indexOf("mw-replace") !== -1) return "Find and replace";
+  if (tags.indexOf("mw-replace") !== -1) return "Find and replace";
   return null;
 }
 async function run() {
@@ -116,7 +125,12 @@ async function run() {
     const pct = total ? (100 * auto / total).toFixed(1) : "0.0";
     let h = '<div class="card"><h2>' + esc(info.name) + '</h2>';
     h += '<div class="stat-grid">';
-    h += '<div class="stat"><b>' + (info.editcount || 0).toLocaleString() + '</b><span>Total edits (all namespaces)</span></div>';
+    // IPs have no account editcount: the users API returns none, so the
+    // all-namespaces total would wrongly show 0. For IPs show the counted
+    // mainspace total instead and label it honestly.
+    const totalAll = (typeof info.editcount === "number") ? info.editcount : total;
+    const totalLabel = (typeof info.editcount === "number") ? "Total edits (all namespaces)" : "Total edits (mainspace only)";
+    h += '<div class="stat"><b>' + totalAll.toLocaleString() + '</b><span>' + totalLabel + '</span></div>';
     h += '<div class="stat"><b>' + total.toLocaleString() + '</b><span>Mainspace edits</span></div>';
     h += '<div class="stat"><b>' + nonAuto.toLocaleString() + '</b><span>Non-automated mainspace edits</span></div>';
     h += '<div class="stat"><b>' + auto.toLocaleString() + '</b><span>Automated mainspace edits (' + pct + '%)</span></div>';
@@ -132,7 +146,7 @@ async function run() {
     } else {
       h += '<div class="card"><h2>Automated edits by tool</h2><p class="note">No automated mainspace edits found for this user.</p></div>';
     }
-    h += '<p class="note">How this works: every mainspace edit is read through the Bharatpedia API. An edit counts as automated when its edit summary carries a known tool signature (AWB, Twinkle, Cat-a-lot, HotCat, WPCleaner, JWB) or the find-and-replace tag. Edits made by hand, and gadget edits that leave no signature in the summary, count as non-automated.</p>';
+    h += '<p class="note">How this works: every mainspace edit is read through the Bharatpedia API. An edit counts as automated when it carries a gadget tag (BharatMitra, Twinkle and XFDcloser tag their own edits), or its edit summary carries a known tool signature (AWB, Twinkle, Cat-a-lot, HotCat, WPCleaner, JWB), or it carries the find-and-replace tag. Gadget edits made before the tags existed are only counted when their summary carries the tool signature.</p>';
     results.innerHTML = h;
     status.textContent = "";
   } catch (e) {
