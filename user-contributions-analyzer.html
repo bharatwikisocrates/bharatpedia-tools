@@ -81,7 +81,7 @@ const NS_NAMES = { 0: "Main", 1: "Talk", 2: "User", 3: "User talk", 4: "Bharatpe
 const TABS = ["overview", "patterns", "quality", "warnings", "blocks", "pages"];
 const TAB_LABELS = { overview: "Overview", patterns: "Edit Patterns", quality: "Quality", warnings: "Warnings", blocks: "Blocks", pages: "Pages" };
 const MAX_EDITS = 50000;
-const state = { user: null, info: null, contribs: [], uccontinue: null, contribsDone: false, truncated: false, stats: null, loadedTabs: {} };
+const state = { user: null, info: null, isIP: false, contribs: [], uccontinue: null, contribsDone: false, truncated: false, stats: null, loadedTabs: {} };
 async function api(params) {
   const url = API + "?" + new URLSearchParams(Object.assign({ format: "json", origin: "*" }, params));
   let r;
@@ -260,7 +260,7 @@ async function analyze() {
   if (!user) return;
   const btn = document.getElementById("go"), st = document.getElementById("status");
   btn.disabled = true;
-  state.user = null; state.info = null; state.contribs = []; state.uccontinue = null;
+  state.user = null; state.info = null; state.isIP = false; state.contribs = []; state.uccontinue = null;
   state.contribsDone = false; state.truncated = false; state.stats = null;
   document.getElementById("tab-overview").innerHTML = "";
   document.getElementById("tabs").hidden = true;
@@ -270,8 +270,20 @@ async function analyze() {
     const u = await api({ action: "query", list: "users", ususers: user, usprop: "editcount|registration|blockinfo|groups" });
     const info = (u.query.users || [])[0];
     if (!info || info.missing !== undefined) { st.textContent = "User not found."; btn.disabled = false; return; }
-    state.user = user; state.info = info;
-    await fetchContribs(500, n => { st.textContent = "Fetched " + n.toLocaleString() + " edits, please wait..."; });
+    // IPs are not accounts: the users API marks them "invalid" and gives no
+    // editcount, registration or groups. Their total must come from the
+    // contributions list itself, otherwise it wrongly shows 0.
+    const isIP = user.indexOf(":") !== -1 || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(user);
+    if (info.invalid !== undefined && !isIP) { st.textContent = "User not found."; btn.disabled = false; return; }
+    state.user = user; state.info = info; state.isIP = isIP;
+    if (isIP) {
+      try {
+        const bl = await api({ action: "query", list: "blocks", bkusers: user, bkprop: "id|reason|expiry" });
+        const blk = (bl.query && bl.query.blocks || [])[0];
+        if (blk) { info.blockid = blk.id; info.blockreason = blk.reason; }
+      } catch (e) { /* block check is optional for IPs */ }
+    }
+    await fetchContribs(isIP ? MAX_EDITS : 500, n => { st.textContent = "Fetched " + n.toLocaleString() + " edits, please wait..."; });
     st.textContent = "";
     document.getElementById("tabs").hidden = false;
     document.getElementById("tabhint").hidden = false;
@@ -286,12 +298,16 @@ function renderOverview() {
   const blocked = !!info.blockid;
   const regDate = info.registration ? new Date(info.registration).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "unknown";
   const ageDays = info.registration ? Math.floor((Date.now() - new Date(info.registration)) / 86400000) : null;
-  const userLink = "https://en.bharatpedia.org/wiki/User:" + encodeURIComponent(user.replace(/ /g, "_"));
+  const userLink = state.isIP
+    ? "https://en.bharatpedia.org/wiki/Special:Contributions/" + encodeURIComponent(user)
+    : "https://en.bharatpedia.org/wiki/User:" + encodeURIComponent(user.replace(/ /g, "_"));
+  const totalEdits = (typeof info.editcount === "number") ? info.editcount : state.contribs.length;
+  const totalLabel = totalEdits.toLocaleString() + ((typeof info.editcount !== "number" && !state.contribsDone) ? "+" : "");
   document.getElementById("tab-overview").innerHTML =
   '<div class="card"><h2><a href="' + userLink + '" target="_blank" rel="noopener">' + esc(user) + '</a> ' + (blocked ? '<span class="badge b-blocked">BLOCKED</span>' : '<span class="badge b-clean">Not blocked</span>') + '</h2>' +
   '<div class="stat-grid">' +
-  '<div class="stat"><b>' + (info.editcount || 0).toLocaleString() + '</b><span>Total edits</span></div>' +
-  '<div class="stat"><b>' + esc((info.groups || []).join(", ") || "user") + '</b><span>Groups</span></div>' +
+  '<div class="stat"><b>' + totalLabel + '</b><span>Total edits</span></div>' +
+  '<div class="stat"><b>' + esc(state.isIP ? "anonymous (IP)" : ((info.groups || []).join(", ") || "user")) + '</b><span>Groups</span></div>' +
   '<div class="stat"><b>' + regDate + '</b><span>Registered</span></div>' +
   '<div class="stat"><b>' + (ageDays !== null ? ageDays.toLocaleString() + " days" : "-") + '</b><span>Account age</span></div>' +
   '</div>' + (blocked && info.blockreason ? '<p style="font-size:14px">Block reason: ' + esc(info.blockreason) + '</p>' : '') +
