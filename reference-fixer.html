@@ -33,6 +33,7 @@ button.ghost{ background:var(--surface-2); color:var(--ink); border:1px solid va
 .t-label{ background:var(--warn-soft); color:var(--warn); }
 .t-dup{ background:var(--info-soft); color:var(--info); }
 .t-title{ background:var(--ok-soft); color:var(--ok); }
+.t-urlname{ background:var(--warn-soft); color:var(--warn); }
 .issue code{ display:block; background:var(--surface-2); border-radius:6px; padding:8px 10px; margin:6px 0; word-break:break-all; font-size:13px; white-space:pre-wrap; }
 .arrow{ color:var(--ink-faint); font-size:12px; }
 textarea{ width:100%; min-height:260px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font-family:ui-monospace,monospace; font-size:13px; }
@@ -150,6 +151,19 @@ function citeNeedsTitle(content){
   return um ? um[1].trim() : null;
 }
 
+// Name fields of a citation (website, publisher, ...) must hold a name, not a
+// URL. Returns one entry per name field whose value is a full URL.
+const NAME_PARAMS=["website","publisher","work","journal","newspaper","magazine","periodical"];
+function findBadNameParams(content){
+  if(!/{{\s*cite[\s_]/i.test(content.trim())) return [];
+  const out=[];
+  NAME_PARAMS.forEach(p=>{
+    const m=content.match(new RegExp("\\|\\s*"+p+"\\s*=\\s*(https?://[^\\s|}]+)","i"));
+    if(m) out.push({param:p, url:m[1], re:new RegExp("(\\|\\s*"+p+"\\s*=\\s*)https?://[^\\s|}]+","i")});
+  });
+  return out;
+}
+
 let itemSeq=0;
 function mkItem(o){ o.id=++itemSeq; o.checked=true; o.ranges=[]; o.proposed=""; return o; }
 function openTag(r, name){ return "<ref"+(name?' name="'+name+'"':"")+r.attrs+">"; }
@@ -214,19 +228,28 @@ function buildItems(refs){
         }}));
     }else if(c.kind==="cite"){
       const u=citeNeedsTitle(r.content);
-      if(u){
-        items.push(mkItem({kind:"fix", refIdx:i, tag:"Missing title", tagClass:"t-title",
-          desc:"Citation template has no title. A title is added.",
-          orig:r.content.trim().slice(0,160), titleURLs:[u], mergedName:needName,
+      const bad=findBadNameParams(r.content);
+      if(u||bad.length){
+        const parts=[];
+        if(bad.length) parts.push("A full URL sits in "+bad.map(b=>"|"+b.param+"=").join(", ")+" where only a name belongs. It is replaced with the site name.");
+        if(u) parts.push("Citation template has no title. A title is added.");
+        items.push(mkItem({kind:"fix", refIdx:i, tag:bad.length?"URL in name field":"Missing title", tagClass:bad.length?"t-urlname":"t-title",
+          desc:parts.join(" "),
+          orig:r.content.trim().slice(0,160), titleURLs:u?[u]:[], mergedName:needName, badParams:bad, titleURL:u,
           finalize(cache){
-            const t=cache[u]||titleFromURL(u);
-            const idx=r.content.lastIndexOf("}}");
-            if(idx<0){ this.ranges=[]; return; }
-            const before=r.content.slice(0,idx).replace(/\s+$/,"");
-            const newContent=before+"|title="+t+"\n"+r.content.slice(idx);
-            const repl=openTag(r,this.mergedName)+newContent+"</ref>";
+            let content=r.content;
+            this.badParams.forEach(b=>{ content=content.replace(b.re, "$1"+siteFromURL(b.url)); });
+            let t="";
+            if(this.titleURL){
+              t=cache[this.titleURL]||titleFromURL(this.titleURL);
+              const idx=content.lastIndexOf("}}");
+              if(idx<0){ this.ranges=[]; return; }
+              const before=content.slice(0,idx).replace(/\s+$/,"");
+              content=before+"|title="+t+"\n"+content.slice(idx);
+            }
+            const repl=openTag(r,this.mergedName)+content+"</ref>";
             this.ranges=[{start:r.start,end:r.end,repl:repl}];
-            this.proposed="... |title="+t.slice(0,80)+" ...";
+            this.proposed=this.titleURL?("... |title="+t.slice(0,80)+" ..."):repl.slice(0,200);
           }}));
       }else if(needName){
         items.push(mkItem({kind:"fix", refIdx:i, tag:"Shared name", tagClass:"t-dup",
